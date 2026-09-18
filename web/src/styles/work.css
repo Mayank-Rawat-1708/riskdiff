@@ -1,0 +1,243 @@
+/* ------------------------------------------ centre pane: the conversation */
+
+.work-head {
+  flex: none;
+  padding: 12px 18px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--surface);
+}
+.work-head .incident {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.work-head .meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.turns {
+  padding: 4px 18px 18px;
+}
+
+/* A transcript, not a chat. Each turn is labelled in the margin and the
+   two voices are told apart by rail and indent rather than by bubbles
+   facing opposite walls. */
+.turn {
+  padding: 14px 0 4px;
+  border-top: 1px solid var(--line-soft);
+}
+.turn:first-child {
+  border-top: none;
+}
+
+.turn-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+.turn-who {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-2);
+}
+.turn.agent .turn-who {
+  color: var(--accent);
+}
+.turn-time {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+.turn-head .grow {
+  flex: 1;
+}
+
+.turn-body {
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.62;
+  color: var(--text);
+  overflow-wrap: break-word;
+}
+.turn.analyst .turn-body {
+  border-left: 2px solid var(--line);
+  padding-left: 12px;
+  color: var(--text-2);
+}
+
+.turn-foot {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.commit-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.commit-line .msg {
+  font-family: var(--mono);
+  color: var(--text-2);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------ provider trail */
+
+/* Which model actually produced the thing you're about to merge. When
+   the chain fell back, every attempt is shown — a silent swap would
+   mean the analyst can't tell whose judgement this is. */
+.trail {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--canvas);
+}
+.trail-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 11.5px;
+  border-top: 1px solid var(--line-soft);
+}
+.trail-row:first-child {
+  border-top: none;
+}
+.trail-row .label {
+  font-family: var(--mono);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.trail-row.failed .label {
+  color: var(--text-3);
+  text-decoration: line-through;
+  text-decoration-color: var(--bad-line);
+}
+.trail-row.used .label {
+  color: var(--text);
+}
+.trail-row .why {
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.trail-row .ms {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.trail-summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.trail-summary .used-model {
+  font-family: var(--mono);
+  color: var(--text-2);
+}
+
+/* -------------------------------------------------------- agent working */
+
+.working-block {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 16px 0 6px;
+  border-top: 1px solid var(--line-soft);
+}
+.working-block .what {
+  font-size: 13px;
+  color: var(--text);
+}
+.working-block .detail {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+.working-block .elapsed {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Three bars that move while the agent is out; a skeleton would imply
+   we know the shape of what's coming back. */
+.bars {
+  display: flex;
+  gap: 3px;
+  align-items: flex-end;
+  height: 14px;
+  margin-top: 3px;
+  flex: none;
+  color: var(--signal);
+}
+.bars i {
+  display: block;
+  width: 3px;
+  background: currentColor;
+  border-radius: 1px;
+  animation: bar 1100ms ease-in-out infinite;
+}
+.bars i:nth-child(1) {
+  height: 6px;
+  animation-delay: 0ms;
+}
+.bars i:nth-child(2) {
+  height: 12px;
+  animation-delay: 140ms;
+}
+.bars i:nth-child(3) {
+  height: 9px;
+  animation-delay: 280ms;
+}
+@keyframes bar {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scaleY(0.6);
+  }
+  50% {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bars i {
+    opacity: 0.7;
+  }
+}
+
+/* A proposal opening is worth one short movement — it's the moment the
+   analyst's attention should move to this pane. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.enter {
+  animation: rise 180ms ease-out;
+}

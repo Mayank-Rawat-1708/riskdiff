@@ -1,0 +1,125 @@
+/* RiskDiff design tokens.
+ *
+ * Dark is the default and the primary target — this is a console
+ * someone sits in front of all day. Light is a rebalance rather than an
+ * inversion: on a white surface the semantic colours have to get darker
+ * and the surfaces have to get a cool tint, or "pending your decision"
+ * amber turns into highlighter and the green/red deltas stop reading as
+ * opposites.
+ *
+ * Colour discipline, held in both themes:
+ *   accent  — interactive, and "this is the current/live thing"
+ *   signal  — exactly one meaning: waiting on a human decision
+ *   good/bad — only on backtest deltas and diff lines, where direction
+ *              is the actual information. Never decoration.
+ */
+
+:root {
+  /* surfaces, darkest to lightest */
+  --canvas: #0d1117;
+  --surface: #121923;
+  --raised: #18202b;
+  --hover: #1e2733;
+  --sunken: #0a0e14;
+
+  --line: #26313f;
+  --line-soft: #1b2331;
+
+  --text: #e8edf4;
+  --text-2: #a4b1c1;
+  --text-3: #8492a4;
+
+  --accent: #5aa0e0;
+  --accent-hi: #7db6ea;
+  --accent-ink: #061018;
+  --accent-tint: rgba(90, 160, 224, 0.13);
+  --accent-line: rgba(90, 160, 224, 0.4);
+
+  --signal: #e0a040;
+  /* Non-text marks — status dots, rails, bars. Held separately because
+     on a light surface the amber that is legible as *text* is a bronze,
+     and a bronze dot no longer reads as "attention". Both values clear
+     3:1 against every surface they sit on. */
+  --signal-mark: #e0a040;
+  --signal-ink: #1a1204;
+  --signal-tint: rgba(224, 160, 64, 0.1);
+  --signal-line: rgba(224, 160, 64, 0.38);
+
+  --good: #4fc48a;
+  --good-ink: #04140c;
+  --good-tint: rgba(79, 196, 138, 0.12);
+  --good-line: rgba(79, 196, 138, 0.35);
+
+  --bad: #ec7264;
+  --bad-ink: #180705;
+  --bad-tint: rgba(236, 114, 100, 0.12);
+  --bad-line: rgba(236, 114, 100, 0.38);
+
+  /* diff needs its own, slightly stronger tints — it is read closely */
+  --diff-add-bg: rgba(79, 196, 138, 0.1);
+  --diff-del-bg: rgba(236, 114, 100, 0.1);
+  --diff-add-word: rgba(79, 196, 138, 0.26);
+  --diff-del-word: rgba(236, 114, 100, 0.26);
+  --diff-gutter: #101722;
+
+  --shadow-pop: 0 8px 24px -8px rgba(0, 0, 0, 0.7);
+
+  --sans: "IBM Plex Sans Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --r-sm: 3px;
+  --r-md: 5px;
+
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  /* A cool paper canvas, so a white pane reads as raised against it
+     rather than dissolving into the page. */
+  --canvas: #eaeef3;
+  --surface: #ffffff;
+  --raised: #f6f8fa;
+  --hover: #eef2f7;
+  --sunken: #f2f5f8;
+
+  --line: #d1d9e2;
+  --line-soft: #e6ebf1;
+
+  --text: #101a25;
+  --text-2: #465668;
+  --text-3: #5a697c;
+
+  --accent: #1a6cb4;
+  --accent-hi: #14548c;
+  --accent-ink: #ffffff;
+  --accent-tint: rgba(26, 108, 180, 0.09);
+  --accent-line: rgba(26, 108, 180, 0.35);
+
+  /* Amber at dark-theme brightness is unreadable on white, so the
+     text-carrying value drops to a bronze and the fill lightens. */
+  --signal: #8a5a0b;
+  --signal-mark: #b0760d;
+  --signal-ink: #ffffff;
+  --signal-tint: #fcf3e2;
+  --signal-line: #e0be85;
+
+  --good: #12734b;
+  --good-ink: #ffffff;
+  --good-tint: #e3f3ea;
+  --good-line: #9ccfb5;
+
+  --bad: #ad3327;
+  --bad-ink: #ffffff;
+  --bad-tint: #fbe9e6;
+  --bad-line: #e3aaa3;
+
+  --diff-add-bg: #e6f5ec;
+  --diff-del-bg: #fdeae7;
+  --diff-add-word: #bde5cd;
+  --diff-del-word: #f7c7c0;
+  --diff-gutter: #f2f5f8;
+
+  --shadow-pop: 0 8px 24px -10px rgba(16, 26, 37, 0.28);
+
+  color-scheme: light;
+}

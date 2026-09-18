@@ -1,0 +1,245 @@
+/* ------------------------------------------------- left pane: the state */
+
+/* Rules are a dense list with a severity rail, not a stack of cards.
+   An analyst scans this column; identical bordered boxes would make
+   every rule look equally important. */
+.rule {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--line-soft);
+  padding: 9px 16px 10px 15px;
+  position: relative;
+}
+.rule::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: -1px;
+  bottom: 0;
+  width: 2px;
+  background: var(--text-3);
+}
+.rule.sev-high::before {
+  background: var(--bad);
+}
+.rule.sev-medium::before {
+  background: var(--signal-mark);
+}
+.rule.sev-low::before {
+  background: var(--text-3);
+}
+
+.rule-id {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+.rule-desc {
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.45;
+  margin-top: 3px;
+}
+.rule-meta {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+.rule-meta .sep {
+  opacity: 0.5;
+}
+
+/* A rule that just changed, so the merge is visible where it landed. */
+@keyframes land {
+  0% {
+    background: var(--good-tint);
+  }
+  100% {
+    background: transparent;
+  }
+}
+.rule.landed {
+  animation: land 1600ms ease-out;
+}
+
+/* ---------------------------------------------------- open proposals */
+
+.prop {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--line-soft);
+  padding: 9px 14px 10px 15px;
+  position: relative;
+  transition: background 120ms ease;
+}
+.prop::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: -1px;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+}
+.prop:hover {
+  background: var(--hover);
+}
+.prop.selected {
+  background: var(--accent-tint);
+}
+.prop.selected::before {
+  background: var(--accent);
+}
+
+.prop-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.prop-title {
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  flex: 1;
+  min-width: 0;
+}
+.prop-branch {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  margin-top: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prop-age {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+
+.prop-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+/* ------------------------------------------------------- the timeline */
+
+/* A real timeline: one rail, nodes that say what kind of event this was.
+   A merge and a rejection are different things and shouldn't look the
+   same in the record. */
+.timeline {
+  padding: 2px 16px 20px 16px;
+}
+
+.commit {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 7px 8px 8px 20px;
+  margin-left: 4px;
+  position: relative;
+  border-radius: var(--r-sm);
+  transition: background 120ms ease;
+}
+.commit::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: -1px;
+  width: 1px;
+  background: var(--line);
+  opacity: 0.9;
+}
+.commit:last-child::after {
+  bottom: 50%;
+}
+.commit:first-child::after {
+  top: 14px;
+}
+.commit::before {
+  content: "";
+  position: absolute;
+  left: -2.5px;
+  top: 12px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--canvas);
+  border: 1.5px solid var(--text-3);
+  z-index: 1;
+}
+.commit.kind-change::before {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.commit.kind-decision::before {
+  border-color: var(--signal-mark);
+}
+.commit.kind-seed::before {
+  width: 4px;
+  height: 4px;
+  left: -1.5px;
+  top: 13px;
+  border-color: var(--line);
+  background: var(--line);
+}
+.commit:hover {
+  background: var(--hover);
+}
+.commit.selected {
+  background: var(--accent-tint);
+}
+.commit.selected::before {
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+
+.commit-msg {
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.4;
+}
+.commit.kind-decision .commit-msg,
+.commit.kind-seed .commit-msg {
+  color: var(--text-2);
+}
+.commit-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+.commit-meta .sha {
+  color: var(--text-2);
+}
+
+.ruleset-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0 16px 10px;
+}

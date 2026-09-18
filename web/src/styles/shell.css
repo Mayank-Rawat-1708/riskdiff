@@ -1,0 +1,266 @@
+/* ---------------------------------------------------------------- shell */
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ------------------------------------------------------------ statusbar */
+
+.statusbar {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  height: 42px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  padding-right: 6px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 16px 0 18px;
+  border-right: 1px solid var(--line-soft);
+  font-weight: 600;
+  font-size: 13.5px;
+  letter-spacing: -0.015em;
+}
+.brand .glyph {
+  width: 13px;
+  height: 13px;
+  border-radius: 2px;
+  border: 1.5px solid var(--accent);
+  border-left-width: 5px;
+  flex: none;
+}
+
+.statusbar .items {
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: 1;
+  min-width: 0;
+}
+.statusbar .items::-webkit-scrollbar {
+  display: none;
+}
+
+.stat {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 14px;
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+  border-right: 1px solid var(--line-soft);
+}
+.stat .k {
+  color: var(--text-3);
+}
+.stat .v {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  color: var(--text);
+}
+.stat.muted .v {
+  color: var(--text-2);
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--text-3);
+}
+.dot.ok {
+  background: var(--good);
+}
+.dot.pending {
+  background: var(--signal-mark);
+}
+.dot.bad {
+  background: var(--bad);
+}
+.dot.off {
+  background: transparent;
+  border: 1px solid var(--text-3);
+}
+
+.statusbar .right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 8px;
+  flex: none;
+}
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+  transition: background 120ms ease, color 120ms ease;
+}
+.icon-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.icon-btn svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+
+.working-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  font-size: 12px;
+  color: var(--signal);
+  border-left: 1px solid var(--line-soft);
+  white-space: nowrap;
+}
+
+.pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ---------------------------------------------------------------- panes */
+
+.panes {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 296px minmax(0, 1fr) minmax(0, 1.12fr);
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  background: var(--canvas);
+  border-right: 1px solid var(--line);
+}
+.pane:last-child {
+  border-right: none;
+}
+.pane.work {
+  background: var(--surface);
+}
+
+.pane-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 0 14px 0 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.pane-head h2 {
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pane-head .sub {
+  font-size: 11.5px;
+  color: var(--text-3);
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.pane-head .grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.pane-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* A quiet section heading inside a scrolling pane. Not an eyebrow —
+   same case and size as body, separated by the rule above it. */
+.section {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 16px 16px 8px;
+  border-top: 1px solid var(--line-soft);
+  margin-top: 6px;
+}
+.section:first-child {
+  border-top: none;
+  margin-top: 0;
+}
+.section h3 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.section .count {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+}
+.section .grow {
+  flex: 1;
+}
+
+/* --------------------------------------------------------- narrow view */
+
+@media (max-width: 1080px) {
+  /* Stacked, and the document scrolls rather than three nested
+     scrollers fighting over the wheel. */
+  .panes {
+    grid-template-columns: 1fr;
+    grid-auto-rows: min-content;
+  }
+  .pane {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+  .pane-body {
+    overflow-y: visible;
+    max-height: none;
+  }
+  .shell {
+    height: auto;
+    min-height: 100%;
+  }
+  .statusbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+}

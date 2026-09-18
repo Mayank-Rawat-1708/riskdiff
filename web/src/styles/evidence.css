@@ -1,0 +1,360 @@
+/* ------------------------------------------- right pane: the evidence
+ *
+ * The diff and the backtest are what the decision is actually made
+ * from, so they get the most care in here: real gutters, line numbers,
+ * word-level highlighting on the values that moved, and metrics that
+ * report both directions of the trade in counts as well as rates.
+ */
+
+.evidence {
+  padding: 14px 16px 20px;
+}
+
+.ev-section {
+  margin-top: 20px;
+}
+.ev-section:first-child {
+  margin-top: 0;
+}
+
+.ev-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 9px;
+}
+.ev-head h3 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.ev-head .note {
+  font-size: 11px;
+  color: var(--text-3);
+  font-family: var(--mono);
+}
+.ev-head .grow {
+  flex: 1;
+}
+
+/* ------------------------------------------------------------ metrics */
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  overflow: hidden;
+}
+.pane .metrics {
+  background: var(--surface);
+}
+.metric {
+  padding: 11px 12px 12px;
+  border-left: 1px solid var(--line-soft);
+  min-width: 0;
+}
+.metric:first-child {
+  border-left: none;
+}
+
+.m-label {
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.m-values {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 7px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+.m-from {
+  font-size: 13px;
+  color: var(--text-3);
+}
+.m-arrow {
+  color: var(--text-3);
+  font-size: 11px;
+  transform: translateY(-1px);
+}
+.m-to {
+  font-size: 19px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.m-delta {
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.m-delta.better {
+  color: var(--good);
+}
+.m-delta.worse {
+  color: var(--bad);
+}
+.m-delta.flat {
+  color: var(--text-3);
+}
+.m-counts {
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The sentence the decision actually turns on, in the analyst's own
+   unit: catches bought, reviews paid. */
+.tradeoff {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.tradeoff b {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.tradeoff .cost {
+  color: var(--bad);
+}
+.tradeoff .gain {
+  color: var(--good);
+}
+
+/* --------------------------------------------------- per-rule counts */
+
+.perrule {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+}
+.perrule th {
+  text-align: right;
+  font-weight: 500;
+  color: var(--text-3);
+  font-size: 11px;
+  padding: 0 0 6px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.perrule th:first-child {
+  text-align: left;
+}
+.perrule td {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line-soft);
+  text-align: right;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+.perrule td:first-child {
+  text-align: left;
+  color: var(--text);
+  font-size: 11.5px;
+}
+.perrule tr:last-child td {
+  border-bottom: none;
+}
+.perrule .d.up {
+  color: var(--signal);
+}
+.perrule .d.down {
+  color: var(--accent);
+}
+.perrule .d.flat {
+  color: var(--text-3);
+}
+.perrule .bar {
+  width: 82px;
+  padding-left: 10px;
+}
+.perrule .bar span {
+  display: block;
+  height: 5px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0.55;
+  min-width: 1px;
+}
+.perrule .bar span.grew {
+  background: var(--signal-mark);
+  opacity: 0.8;
+}
+
+/* ---------------------------------------------------------------- diff */
+
+.diff {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.diff-file {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 11px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--raised);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-2);
+}
+.diff-file .grow {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-file .plus {
+  color: var(--good);
+}
+.diff-file .minus {
+  color: var(--bad);
+}
+
+.diff-body {
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  line-height: 1.7;
+}
+
+.dl {
+  display: flex;
+  min-width: max-content;
+  background: var(--surface);
+}
+.dl.add {
+  background: var(--diff-add-bg);
+}
+.dl.del {
+  background: var(--diff-del-bg);
+}
+.dl.hunk {
+  background: var(--sunken);
+}
+
+/* The gutter stays put when a long line scrolls sideways — line numbers
+   you can't see while reading the line are no use. */
+.dl .gutter {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  display: flex;
+  flex: none;
+  background: inherit;
+  border-right: 1px solid var(--line-soft);
+  user-select: none;
+}
+.dl .ln {
+  width: 34px;
+  padding-right: 7px;
+  text-align: right;
+  color: var(--text-3);
+  opacity: 0.75;
+  font-size: 10.5px;
+}
+/* The +/- lives in its own column. Glued to the content it reads as
+   part of the text — a "+" before a YAML comment renders as "+#". */
+.dl .mark {
+  width: 15px;
+  text-align: center;
+  color: var(--text-3);
+}
+.dl.add .mark {
+  color: var(--good);
+}
+.dl.del .mark {
+  color: var(--bad);
+}
+
+.dl .code {
+  padding: 0 14px 0 8px;
+  white-space: pre;
+  color: var(--text-2);
+}
+.dl.add .code,
+.dl.del .code {
+  color: var(--text);
+}
+.dl.hunk .code,
+.dl.hunk .ln {
+  color: var(--text-3);
+}
+
+/* Character-level highlight on the part of the line that actually
+   changed. On a threshold edit this is the whole point: the eye lands
+   on "50000 → 25000" rather than on two similar-looking lines. */
+.dl .w {
+  border-radius: 2px;
+  padding: 1px 0;
+}
+.dl.add .w {
+  background: var(--diff-add-word);
+}
+.dl.del .w {
+  background: var(--diff-del-word);
+}
+
+.diff-empty {
+  padding: 18px 14px;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+/* -------------------------------------------------------- decision bar */
+
+.decision {
+  flex: none;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  padding: 12px 16px 14px;
+}
+.decision .field {
+  min-height: 52px;
+}
+.decision .why {
+  font-size: 11.5px;
+  color: var(--text-3);
+  margin-bottom: 7px;
+}
+.decision .btn-row {
+  margin-top: 10px;
+}
+
+/* A merge landing gets one flash — the one moment where something
+   irreversible happened and the analyst should see where it went. */
+@keyframes flash {
+  0% {
+    background: var(--good-tint);
+    border-color: var(--good-line);
+  }
+  100% {
+    background: var(--surface);
+    border-color: var(--line);
+  }
+}
+.decision.landed {
+  animation: flash 1400ms ease-out;
+}
