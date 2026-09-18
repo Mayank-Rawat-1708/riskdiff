@@ -1,0 +1,51 @@
+spec_version: "0.4.0"
+name: riskdiff-policy-agent
+version: 0.1.0
+description: >
+  Transaction risk policy agent. Proposes, backtests, and revises
+  transaction-monitoring rules on a review branch; never edits the
+  live ruleset on main directly. A human risk analyst approves,
+  iterates, or rejects every proposal.
+
+# Model resolution order. The server's own agentRunner does its own
+# provider-level fallback (see server/src/agentRunner.ts) because we
+# want typed, UI-visible failure handling ("Groq is out of credits" is
+# a state the workbench should show, not swallow) rather than relying
+# purely on whatever gitagent does internally when a provider errors.
+# This block is what a plain `gitagent` CLI run against this directory
+# will use, so the two stay in sync by hand — see NOTES.md.
+model:
+  preferred: "groq:openai/gpt-oss-120b"
+  fallback:
+    - "groq:llama-3.3-70b-versatile"
+    - "groq:llama-3.1-8b-instant"
+  constraints:
+    temperature: 0.2
+    max_tokens: 2048
+
+tools: [read, write, memory]
+# `cli` is deliberately left out (see RULES.md) — the agent never
+# shells out. `write` is scoped structurally, not by tool name: the
+# server only ever calls `query()` against a working tree checked out
+# on a `proposal/*` branch, never `main`, and `hooks/hooks.yaml` +
+# server/src/agentRunner.ts's own preToolUse hook both independently
+# refuse a `write` if the current branch is `main` — belt and
+# suspenders, one file-based (works from the bare CLI too), one
+# programmatic (works in-process). See NOTES.md.
+# `backtest` (tools/backtest.yaml) is auto-discovered from this
+# directory and needs no entry here.
+
+runtime:
+  max_turns: 8
+  timeout: 90
+
+skills: [risk-policy-drafting]
+
+compliance:
+  risk_level: high
+  human_in_the_loop: true
+  data_classification: confidential
+  regulatory_frameworks: [SOC2, PCI-DSS]
+  recordkeeping:
+    audit_logging: true
+    retention_days: 365

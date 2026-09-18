@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: riskdiff
+    runtime: node
+    plan: free
+    buildCommand: npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: GROQ_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GIT_REPO_URL
+        sync: false
+      - key: GITHUB_PAT
+        sync: false
+      - key: RUNTIME_DIR
+        value: /tmp/riskdiff-runtime

@@ -1,0 +1,14 @@
+hooks:
+  pre_tool_use:
+    - script: guard-branch.sh
+      description: >
+        Refuse any write/cli tool call while the working tree is on
+        `main`. The workbench server never invokes the agent against
+        `main` anyway (see server/src/agentRunner.ts), so in normal
+        operation this never fires -- it's a second, independent
+        guard for the case someone runs `gitagent -d agent/` by hand
+        against the wrong checkout. Belt and suspenders; see NOTES.md.
+  on_error:
+    - script: log-error.sh
+      description: Append the failure to memory/MEMORY.md so a bad
+        run leaves a trace even if no proposal was ever opened.

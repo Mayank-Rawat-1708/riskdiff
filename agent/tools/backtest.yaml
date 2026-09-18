@@ -1,0 +1,26 @@
+name: backtest
+description: >
+  Run a candidate ruleset against the historical labeled transaction
+  dataset and compare it to the current live ruleset. Returns catch
+  rate, false-positive rate, and per-rule flag counts for both sides of
+  the comparison, plus a canonical YAML rendering of the candidate
+  ruleset that you should copy verbatim into rules/active-ruleset.yaml
+  when you write your proposal -- don't hand-format the YAML yourself,
+  use the tool's `formatted_yaml` output, so what gets backtested and
+  what gets written are guaranteed to be the same thing.
+input_schema:
+  properties:
+    candidate_rules_json:
+      type: string
+      description: >
+        JSON array of every rule in the proposed ruleset (not just the
+        changed one). Each item: {id, description, condition: {type,
+        ...type-specific fields}, action, severity}. Supported
+        condition types: "velocity" (fields: field, operator,
+        threshold_hours, amount_threshold_inr), "geo_mismatch" (fields:
+        amount_threshold_inr), "frequency" (fields: window_minutes,
+        count_threshold).
+  required: [candidate_rules_json]
+implementation:
+  script: scripts/backtest.mjs
+  runtime: node

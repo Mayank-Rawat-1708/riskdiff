@@ -1,0 +1,41 @@
+# Live transaction-monitoring ruleset.
+#
+# This file is the single source of truth the workbench renders in its
+# left pane. It is only ever changed by: (a) an analyst merging an
+# approved proposal branch, or (b) an analyst reverting a past commit.
+# The agent never commits to this file on `main` — see RULES.md.
+version: 4
+rules:
+  - id: velocity-new-device
+    description: >
+      Flag transfers over ₹50,000 from a device seen for the first
+      time in the last 24 hours.
+    condition:
+      type: velocity
+      field: device_age_hours
+      operator: lt
+      threshold_hours: 24
+      amount_threshold_inr: 50000
+    action: flag_for_review
+    severity: high
+
+  - id: geo-mismatch
+    description: >
+      Flag transactions where the billing country differs from the
+      device's IP country and the amount exceeds ₹20,000.
+    condition:
+      type: geo_mismatch
+      amount_threshold_inr: 20000
+    action: flag_for_review
+    severity: medium
+
+  - id: rapid-succession
+    description: >
+      Flag more than 4 transactions from the same account within a
+      10-minute window.
+    condition:
+      type: frequency
+      window_minutes: 10
+      count_threshold: 4
+    action: flag_for_review
+    severity: medium
