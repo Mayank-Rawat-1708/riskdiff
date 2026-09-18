@@ -8,11 +8,35 @@ import type { BacktestResult, ProviderAttempt } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
+export class AgentCancelledError extends Error {
+  constructor() {
+    super("The analyst stopped this run.");
+    this.name = "AgentCancelledError";
+  }
+}
+
+export class AllProvidersFailedError extends Error {
+  readonly attempts: ProviderAttempt[];
+  constructor(attempts: ProviderAttempt[]) {
+    super(
+      attempts.length
+        ? `Every configured model provider failed (${attempts.length} tried).`
+        : "No model provider is configured on this deployment.",
+    );
+    this.name = "AllProvidersFailedError";
+    this.attempts = attempts;
+  }
+}
+
 export interface AgentRunResult {
   text: string;
   commitMsg: string | null;
   backtest: BacktestResult | null;
+  /** The agent called `backtest` but the tool itself errored. RULES.md
+   *  item 3 wants that stated, not treated as "no backtest". */
+  backtestError: string | null;
   providerAttempts: ProviderAttempt[];
+  costUsd: number | null;
 }
 
 async function currentBranch(dir: string): Promise<string> {
@@ -49,25 +73,32 @@ function buildHooks(worktreeRoot: string): GCHooks {
 }
 
 function extractCommitMsg(text: string): { text: string; commitMsg: string | null } {
-  const match = text.match(/^COMMIT_MSG:\s*(.+)$/m);
+  const match = text.match(/^\s*COMMIT_MSG:\s*(.+)$/m);
   if (!match) return { text, commitMsg: null };
-  const commitMsg = match[1].trim();
+  const commitMsg = match[1].trim().replace(/^["'`]|["'`]$/g, "");
   const cleaned = text.replace(match[0], "").trimEnd();
   return { text: cleaned, commitMsg };
 }
 
-function extractBacktest(messages: GCMessage[]): BacktestResult | null {
+function extractBacktest(messages: GCMessage[]): { backtest: BacktestResult | null; error: string | null } {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
-    if (m.type === "tool_result" && m.toolName === "backtest" && !m.isError) {
-      try {
-        return JSON.parse(m.content) as BacktestResult;
-      } catch {
-        return null;
+    if (m.type !== "tool_result" || m.toolName !== "backtest") continue;
+    if (m.isError) return { backtest: null, error: m.content.slice(0, 400) };
+    try {
+      const parsed = JSON.parse(m.content) as BacktestResult & { error?: string };
+      // The tool reports its own refusals as {"error": "..."} on stdout
+      // with a non-zero exit; that's a failed backtest, not a result.
+      if (parsed.error) return { backtest: null, error: String(parsed.error).slice(0, 400) };
+      if (!parsed.current || !parsed.candidate) {
+        return { backtest: null, error: "backtest returned a result with no current/candidate scores" };
       }
+      return { backtest: parsed, error: null };
+    } catch {
+      return { backtest: null, error: "backtest returned output that was not valid JSON" };
     }
   }
-  return null;
+  return { backtest: null, error: null };
 }
 
 /**
@@ -79,24 +110,28 @@ function extractBacktest(messages: GCMessage[]): BacktestResult | null {
  * something the analyst can actually see in the workbench rather than
  * a swallowed retry.
  */
-export async function runAgentTurn(opts: { agentDir: string; prompt: string }): Promise<AgentRunResult> {
+export async function runAgentTurn(opts: {
+  agentDir: string;
+  prompt: string;
+  signal?: AbortSignal;
+}): Promise<AgentRunResult> {
   const chain = buildModelChain();
   const providerAttempts: ProviderAttempt[] = [];
 
-  if (chain.length === 0) {
-    return {
-      text: "No model provider is configured on this deployment (missing GROQ_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY).",
-      commitMsg: null,
-      backtest: null,
-      providerAttempts,
-    };
-  }
+  if (chain.length === 0) throw new AllProvidersFailedError(providerAttempts);
+  if (opts.signal?.aborted) throw new AgentCancelledError();
 
   const worktreeRoot = path.resolve(opts.agentDir, "..");
 
   for (const candidate of chain) {
+    if (opts.signal?.aborted) throw new AgentCancelledError();
+    const startedAt = Date.now();
     try {
       const messages: GCMessage[] = [];
+      const abortController = new AbortController();
+      const forward = () => abortController.abort();
+      opts.signal?.addEventListener("abort", forward, { once: true });
+
       const q = query({
         prompt: opts.prompt,
         dir: opts.agentDir,
@@ -104,57 +139,73 @@ export async function runAgentTurn(opts: { agentDir: string; prompt: string }): 
         allowedTools: ["read", "write", "memory", "backtest"],
         hooks: buildHooks(worktreeRoot),
         maxTurns: 8,
+        abortController,
         constraints: { temperature: 0.2, maxTokens: 2048 },
       });
 
       let finalText = "";
       let sawHardError = false;
       let errorDetail = "";
+      let resolvedModel: string | undefined;
+      let costUsd: number | null = null;
 
-      for await (const msg of q) {
-        messages.push(msg);
-        if (msg.type === "assistant") {
-          finalText = msg.content;
-          if (msg.stopReason === "error") {
+      try {
+        for await (const msg of q) {
+          messages.push(msg);
+          if (msg.type === "assistant") {
+            if (msg.content.trim()) finalText = msg.content;
+            resolvedModel = msg.model ? `${msg.provider ?? ""}${msg.provider ? ":" : ""}${msg.model}` : resolvedModel;
+            if (typeof msg.usage?.costUsd === "number") costUsd = (costUsd ?? 0) + msg.usage.costUsd;
+            if (msg.stopReason === "error") {
+              sawHardError = true;
+              errorDetail = msg.errorMessage ?? "assistant stopReason=error";
+            }
+            if (msg.stopReason === "aborted") throw new AgentCancelledError();
+          }
+          if (msg.type === "system" && msg.subtype === "error") {
             sawHardError = true;
-            errorDetail = msg.errorMessage ?? "assistant stopReason=error";
+            errorDetail = msg.content;
           }
         }
-        if (msg.type === "system" && msg.subtype === "error") {
-          sawHardError = true;
-          errorDetail = msg.content;
-        }
+      } finally {
+        opts.signal?.removeEventListener("abort", forward);
       }
+
+      if (opts.signal?.aborted) throw new AgentCancelledError();
 
       if (sawHardError || !finalText.trim()) {
         providerAttempts.push({
           model: candidate.model,
           label: candidate.label,
           ok: false,
-          error: errorDetail || "empty response",
+          error: errorDetail || "the model returned an empty response",
+          ms: Date.now() - startedAt,
         });
         continue;
       }
 
-      providerAttempts.push({ model: candidate.model, label: candidate.label, ok: true });
+      providerAttempts.push({
+        model: candidate.model,
+        label: candidate.label,
+        ok: true,
+        resolvedModel,
+        ms: Date.now() - startedAt,
+      });
       const { text, commitMsg } = extractCommitMsg(finalText);
-      const backtest = extractBacktest(messages);
-      return { text, commitMsg, backtest, providerAttempts };
+      const { backtest, error: backtestError } = extractBacktest(messages);
+      return { text, commitMsg, backtest, backtestError, providerAttempts, costUsd };
     } catch (err) {
+      if (err instanceof AgentCancelledError || opts.signal?.aborted) throw new AgentCancelledError();
       providerAttempts.push({
         model: candidate.model,
         label: candidate.label,
         ok: false,
         error: err instanceof Error ? err.message : String(err),
+        ms: Date.now() - startedAt,
       });
       continue;
     }
   }
 
-  return {
-    text: "Every configured model provider failed. Check providerAttempts below -- this usually means an API key is invalid, rate-limited, or out of credits.",
-    commitMsg: null,
-    backtest: null,
-    providerAttempts,
-  };
+  throw new AllProvidersFailedError(providerAttempts);
 }

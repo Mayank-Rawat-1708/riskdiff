@@ -4,7 +4,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { config, buildModelChain } from "./config.js";
-import { initRepo, repoMode } from "./repoManager.js";
+import { initRepo, repoMode, getLastPushError, primaryDir } from "./repoManager.js";
 import { reconcileFromGit } from "./proposalStore.js";
 import { rulesRouter } from "./routes/rules.js";
 import { proposalsRouter } from "./routes/proposals.js";
@@ -13,23 +13,30 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function main() {
   const { mode } = await initRepo();
-  await reconcileFromGit(path.join(config.runtimeDir, "primary"));
+  await reconcileFromGit(primaryDir());
 
   const app = express();
   app.use(cors(config.corsOrigin ? { origin: config.corsOrigin } : {}));
   app.use(express.json({ limit: "1mb" }));
 
   app.get("/api/status", (_req, res) => {
+    const chain = buildModelChain();
     res.json({
       repoMode: repoMode(),
       runtimeMode: mode,
-      modelChain: buildModelChain().map((c) => c.label),
+      modelChain: chain.map((c) => c.label),
       hasGitRepoUrl: Boolean(config.gitRepoUrl),
+      // Non-fatal: the merge landed locally, the push didn't. The
+      // status bar says so rather than the analyst discovering it on
+      // GitHub later.
+      pushError: getLastPushError(),
     });
   });
 
   app.use("/api/rules", rulesRouter);
   app.use("/api/proposals", proposalsRouter);
+
+  app.use("/api", (_req, res) => res.status(404).json({ error: "No such endpoint." }));
 
   // Serve the built web app if present (single-service Render deploy).
   // In local dev without a web build yet, the API still runs fine on
@@ -41,7 +48,9 @@ async function main() {
     app.get("*", (_req, res) => res.sendFile(path.join(webDist, "index.html")));
   } else {
     app.get("/", (_req, res) =>
-      res.type("text/plain").send("RiskDiff API is running. web/dist not found -- build the frontend to serve it from here."),
+      res
+        .type("text/plain")
+        .send("RiskDiff API is running. web/dist not found -- build the frontend to serve it from here."),
     );
   }
 

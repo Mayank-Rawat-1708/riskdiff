@@ -3,11 +3,15 @@ import {
   createProposal,
   commitProposalChanges,
   diffProposalAgainstMain,
+  commitsBehindMain,
   approveProposal,
   rejectProposal,
+  discardProposal,
+  MergeConflictError,
 } from "../repoManager.js";
-import { runAgentTurn } from "../agentRunner.js";
+import { runAgentTurn, AgentCancelledError, AllProvidersFailedError } from "../agentRunner.js";
 import * as store from "../proposalStore.js";
+import type { ProposalTurn, ProposalView } from "../types.js";
 
 export const proposalsRouter = Router();
 
@@ -47,89 +51,154 @@ function fallbackCommitMsg(incidentDescription: string): string {
   return `Update ruleset re: ${words}`.slice(0, 72);
 }
 
-proposalsRouter.get("/", (_req, res) => {
-  res.json({ proposals: store.list().map(toClientView) });
+async function toClientView(p: store.StoredProposal | undefined): Promise<ProposalView | null> {
+  if (!p) return null;
+  const [diff, behindMain] = await Promise.all([
+    diffProposalAgainstMain(p.handle),
+    commitsBehindMain(p.handle),
+  ]);
+  return {
+    id: p.id,
+    branch: p.handle.branch,
+    incidentDescription: p.incidentDescription,
+    createdAt: p.createdAt,
+    turns: p.turns,
+    recovered: p.recovered,
+    phase: p.phase,
+    phaseLabel: p.phaseLabel,
+    startedAt: p.startedAt,
+    lastError: p.lastError,
+    diff,
+    hadChanges: Boolean(diff.trim()),
+    behindMain,
+    conflict: p.conflict,
+  };
+}
+
+/**
+ * Runs one agent turn in the background. The HTTP request that started
+ * it has already returned: a model call takes tens of seconds, and a
+ * request held open that long is a spinner the analyst can't interrupt,
+ * a proposal they can't switch away from, and a request the platform may
+ * time out from under them. Progress is read back by polling GET /:id.
+ */
+async function runTurnInBackground(p: store.StoredProposal, prompt: string, label: string): Promise<void> {
+  const abort = new AbortController();
+  p.abort = abort;
+  store.setPhase(p.id, "running", label);
+
+  try {
+    const result = await runAgentTurn({ agentDir: p.handle.agentDir, prompt, signal: abort.signal });
+    const commitMsg = result.commitMsg || fallbackCommitMsg(p.incidentDescription);
+
+    const turn: ProposalTurn = {
+      role: "agent",
+      text: result.text,
+      at: new Date().toISOString(),
+      backtest: result.backtest,
+      commitMsg: result.commitMsg,
+      backtestError: result.backtestError,
+      providerAttempts: result.providerAttempts,
+      costUsd: result.costUsd,
+    };
+    store.addTurn(p.id, turn);
+
+    // The transcript is written from the store *after* the turn is
+    // recorded, so the commit that carries the rule edit also carries
+    // the reasoning that produced it.
+    const { unexpectedFileChanges, rulesetChanged } = await commitProposalChanges(
+      p.handle,
+      commitMsg,
+      [store.transcriptFor(p)],
+    );
+    turn.unexpectedFileChanges = unexpectedFileChanges;
+    turn.noRulesetChange = !rulesetChanged;
+
+    store.setPhase(p.id, "idle");
+  } catch (err) {
+    if (err instanceof AgentCancelledError) {
+      store.setPhase(p.id, "cancelled");
+      return;
+    }
+    if (err instanceof AllProvidersFailedError) {
+      store.addTurn(p.id, {
+        role: "agent",
+        text: "",
+        at: new Date().toISOString(),
+        providerAttempts: err.attempts,
+      });
+      store.setError(p.id, err.message);
+      return;
+    }
+    store.setError(p.id, err instanceof Error ? err.message : String(err));
+  }
+}
+
+proposalsRouter.get("/", async (_req, res) => {
+  const views = await Promise.all(store.list().map(toClientView));
+  res.json({ proposals: views.filter(Boolean) });
 });
 
-proposalsRouter.get("/:id", (req, res) => {
+proposalsRouter.get("/:id", async (req, res) => {
   const p = store.get(req.params.id);
-  if (!p) return res.status(404).json({ error: "not found" });
-  res.json(toClientView(p));
+  if (!p) return res.status(404).json({ error: "This proposal is no longer open." });
+  res.json(await toClientView(p));
 });
 
 proposalsRouter.post("/", async (req, res) => {
   const { incidentDescription } = req.body as { incidentDescription?: string };
   if (!incidentDescription?.trim()) {
-    return res.status(400).json({ error: "incidentDescription is required" });
+    return res.status(400).json({ error: "Describe what you're seeing before drafting a proposal." });
   }
+
+  let handle;
   try {
-    const handle = await createProposal(incidentDescription);
-    const p = store.create(handle, incidentDescription);
-
-    const prompt = INITIAL_INSTRUCTIONS.replace("{{INPUT}}", incidentDescription);
-    const result = await runAgentTurn({ agentDir: handle.agentDir, prompt });
-
-    const commitMsg = result.commitMsg || fallbackCommitMsg(incidentDescription);
-    const { unexpectedFileChanges, hadChanges } = await commitProposalChanges(handle, commitMsg);
-
-    store.addTurn(p.id, {
-      role: "agent",
-      text: result.text,
-      at: new Date().toISOString(),
-      backtest: result.backtest,
-      commitMsg: result.commitMsg,
-      unexpectedFileChanges,
-      providerAttempts: result.providerAttempts,
-    });
-
-    const diff = hadChanges ? await diffProposalAgainstMain(handle) : "";
-    res.json({ ...toClientView(store.get(p.id)!), diff, hadChanges });
+    handle = await createProposal(incidentDescription);
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    return res.status(500).json({ error: `Could not create the proposal branch: ${String(err)}` });
   }
+
+  const p = store.create(handle, incidentDescription);
+  const prompt = INITIAL_INSTRUCTIONS.replace("{{INPUT}}", incidentDescription);
+  void runTurnInBackground(p, prompt, "Drafting a rule change");
+  res.status(202).json(await toClientView(p));
 });
 
 proposalsRouter.post("/:id/iterate", async (req, res) => {
   const p = store.get(req.params.id);
-  if (!p) return res.status(404).json({ error: "not found" });
+  if (!p) return res.status(404).json({ error: "This proposal is no longer open." });
+  if (p.phase === "running") return res.status(409).json({ error: "The agent is still working on this proposal." });
+
   const { feedback } = req.body as { feedback?: string };
-  if (!feedback?.trim()) return res.status(400).json({ error: "feedback is required" });
+  if (!feedback?.trim()) return res.status(400).json({ error: "Say what needs to change." });
 
   store.addTurn(p.id, { role: "analyst", text: feedback, at: new Date().toISOString() });
 
-  const lastAgentTurn = [...p.turns].reverse().find((t) => t.role === "agent");
-  const prompt = ITERATE_INSTRUCTIONS.replace("{{PREVIOUS}}", lastAgentTurn?.text ?? "(no previous response on file)").replace(
-    "{{INPUT}}",
-    feedback,
-  );
+  const lastAgentTurn = [...p.turns].reverse().find((t) => t.role === "agent" && t.text.trim());
+  const prompt = ITERATE_INSTRUCTIONS.replace(
+    "{{PREVIOUS}}",
+    lastAgentTurn?.text ?? "(no previous response on file)",
+  ).replace("{{INPUT}}", feedback);
 
-  try {
-    const result = await runAgentTurn({ agentDir: p.handle.agentDir, prompt });
-    const commitMsg = result.commitMsg || fallbackCommitMsg(feedback);
-    const { unexpectedFileChanges, hadChanges } = await commitProposalChanges(p.handle, commitMsg);
+  void runTurnInBackground(p, prompt, "Revising the proposal");
+  res.status(202).json(await toClientView(p));
+});
 
-    store.addTurn(p.id, {
-      role: "agent",
-      text: result.text,
-      at: new Date().toISOString(),
-      backtest: result.backtest,
-      commitMsg: result.commitMsg,
-      unexpectedFileChanges,
-      providerAttempts: result.providerAttempts,
-    });
-
-    const diff = await diffProposalAgainstMain(p.handle);
-    res.json({ ...toClientView(store.get(p.id)!), diff, hadChanges });
-  } catch (err) {
-    res.status(500).json({ error: String(err) });
-  }
+proposalsRouter.post("/:id/cancel", async (req, res) => {
+  const p = store.get(req.params.id);
+  if (!p) return res.status(404).json({ error: "This proposal is no longer open." });
+  p.abort?.abort();
+  res.json(await toClientView(p));
 });
 
 proposalsRouter.post("/:id/approve", async (req, res) => {
   const p = store.get(req.params.id);
-  if (!p) return res.status(404).json({ error: "not found" });
-  const { analystNote } = req.body as { analystNote?: string };
+  if (!p) return res.status(404).json({ error: "This proposal is no longer open." });
+  if (p.phase === "running") {
+    return res.status(409).json({ error: "The agent is still working — stop the run before merging." });
+  }
 
+  const { analystNote } = req.body as { analystNote?: string };
   const lastAgentTurn = [...p.turns].reverse().find((t) => t.role === "agent");
   const commitMsg = lastAgentTurn?.commitMsg || fallbackCommitMsg(p.incidentDescription);
 
@@ -138,32 +207,52 @@ proposalsRouter.post("/:id/approve", async (req, res) => {
     store.remove(p.id);
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    if (err instanceof MergeConflictError) {
+      // main moved under this branch. The merge has been unwound, so
+      // main is clean and the branch is untouched -- the analyst can
+      // still read it, reject it, or re-run it against current main.
+      store.setConflict(p.id, { paths: err.paths, at: new Date().toISOString() });
+      return res.status(409).json({ error: err.message, conflict: err.paths });
+    }
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
 proposalsRouter.post("/:id/reject", async (req, res) => {
   const p = store.get(req.params.id);
-  if (!p) return res.status(404).json({ error: "not found" });
-  const { analystNote } = req.body as { analystNote?: string };
+  if (!p) return res.status(404).json({ error: "This proposal is no longer open." });
+  if (p.phase === "running") {
+    return res.status(409).json({ error: "The agent is still working — stop the run before rejecting." });
+  }
 
+  const { analystNote } = req.body as { analystNote?: string };
   try {
     await rejectProposal(p.handle, analystNote ?? "");
     store.remove(p.id);
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
-function toClientView(p: ReturnType<typeof store.get>) {
-  if (!p) return null;
-  return {
-    id: p.id,
-    branch: p.handle.branch,
-    incidentDescription: p.incidentDescription,
-    createdAt: p.createdAt,
-    turns: p.turns,
-    recovered: p.recovered ?? false,
-  };
-}
+/**
+ * Drops a proposal that never produced anything -- a run that failed
+ * before the agent wrote a line. No memory entry, because nothing was
+ * ever decided; recording "rejected" for a branch the analyst never got
+ * to read would put a lie in the agent's memory.
+ */
+proposalsRouter.post("/:id/discard", async (req, res) => {
+  const p = store.get(req.params.id);
+  if (!p) return res.status(404).json({ error: "This proposal is no longer open." });
+  if (p.turns.some((t) => t.role === "agent" && t.text.trim())) {
+    return res.status(409).json({ error: "This proposal has agent output — reject it so the decision is recorded." });
+  }
+  try {
+    p.abort?.abort();
+    await discardProposal(p.handle);
+    store.remove(p.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
