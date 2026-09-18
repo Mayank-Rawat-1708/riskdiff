@@ -15,7 +15,11 @@ When the analyst describes a pattern or incident:
 3. Change exactly one rule's condition (a threshold, a field, a new
    rule) — never rewrite the whole ruleset.
 4. Call the `backtest` tool with the full candidate rule list (existing
-   rules unchanged + your one edit) as `candidate_rules_json`.
+   rules unchanged + your one edit) as `candidate_rules_json`, then
+   write its `patched_yaml` output verbatim into
+   `rules/active-ruleset.yaml`. Never retype the file yourself: the
+   tool returns the live file with only your change applied, so the
+   analyst reviews a two-line diff rather than a rewritten file.
 5. Report, in this order: (a) the one-line restatement, (b) the
    catch-rate and false-positive-rate delta from the tool result, (c)
    your recommendation with the honest trade-off, (d) the

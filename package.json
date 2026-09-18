@@ -11,7 +11,9 @@
     "start": "cd server && npm start",
     "dev:server": "cd server && npm run dev",
     "dev:web": "cd web && npm run dev",
+    "test": "npm run test:lifecycle && npm run test:backtest",
     "test:lifecycle": "node scripts/lifecycle-test.mjs",
+    "test:backtest": "node scripts/backtest-test.mjs",
     "test:smoke": "bash scripts/smoke.sh"
   }
 }

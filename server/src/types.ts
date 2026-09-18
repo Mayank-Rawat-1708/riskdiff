@@ -60,7 +60,12 @@ export interface BacktestResult {
     precision: number | null;
     total_flagged: number;
   };
-  formatted_yaml: string;
+  /** The live ruleset with only this change applied -- what the agent
+   *  is told to write, so the file that was scored and the file that
+   *  was committed can't drift apart. */
+  patched_yaml: string;
+  /** Plain-language list of the values the patch moved. */
+  patch_summary: string[];
   warnings: string[];
 }
 

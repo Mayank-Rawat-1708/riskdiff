@@ -3,11 +3,17 @@ description: >
   Run a candidate ruleset against the historical labeled transaction
   dataset and compare it to the current live ruleset. Returns catch
   rate, false-positive rate, and per-rule flag counts for both sides of
-  the comparison, plus a canonical YAML rendering of the candidate
-  ruleset that you should copy verbatim into rules/active-ruleset.yaml
-  when you write your proposal -- don't hand-format the YAML yourself,
-  use the tool's `formatted_yaml` output, so what gets backtested and
-  what gets written are guaranteed to be the same thing.
+  the comparison.
+
+  It also returns `patched_yaml`: the CURRENT ruleset file with only
+  your change applied to it, comments and formatting otherwise
+  untouched. Write that value verbatim into rules/active-ruleset.yaml.
+  Do not hand-format the YAML yourself and do not rewrite the file from
+  scratch -- both would reformat lines you didn't change, and a rule
+  change has to be readable as a small diff. Using `patched_yaml` is
+  also what guarantees the ruleset you committed and the ruleset that
+  was scored are the same one. `patch_summary` lists, in plain
+  language, every value the patch moved; quote it in your response.
 input_schema:
   properties:
     candidate_rules_json:
