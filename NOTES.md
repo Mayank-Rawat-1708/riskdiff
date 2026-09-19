@@ -9,6 +9,31 @@ the thing, and how they were found is the useful part.
 
 ---
 
+## Why this problem
+
+I lead the Transactions Pod at my current company, so the user here isn't
+hypothetical — a risk analyst who owns a monitoring ruleset is someone
+whose week I understand. The thing that stuck with me is that a rule
+change is a bet in two directions at once: tighten too far and you
+decline paying customers, loosen too far and you eat chargebacks. And it
+usually ships as a Slack message and a deploy, with no durable record of
+who decided what, on what evidence, or how to undo it.
+
+So the gap isn't "an agent that writes rules". It's a decision surface
+where the proposal, the evidence it rests on, the human's reasoning and
+the reversal are all the same artifact.
+
+Git is the unusual part, and the reason the harness choice is
+load-bearing rather than incidental. Once a proposal is a branch,
+approval is a merge, and rollback is a forward commit, the audit trail
+stops being something you build and starts being something you get. The
+agent's memory is the same history — it reads what this business already
+approved and rejected before it drafts, so "we tried that in July and
+pulled it" is something it knows rather than something an analyst has to
+remember.
+
+---
+
 ## Bugs that were real
 
 ### A merge conflict wrote conflict markers into the live ruleset
@@ -235,6 +260,12 @@ now names the usual suspects as unavailable. It isn't a guarantee;
 it's a mitigation for a class of failure that is visible when it
 happens.
 
+All of the above was also driven by hand through the browser, not only in
+automation: propose, read the backtest, approve, inspect the merged
+commit, roll it back, and watch the provider trail show two rate-limited
+primaries sitting above the model that actually answered. The numbers in
+this document are ones I watched land.
+
 ---
 
 ## Still broken, on purpose
@@ -368,6 +399,17 @@ at 25,000. The condition is rendered underneath, in file order.
 code honours.** `DUTIES.md` spells out who holds which authority, and
 `agent.yaml`'s tool list now matches what the server actually permits —
 which it didn't, before the audit above.
+
+**This can't be serverless, and that's the architecture rather than a
+deployment preference.** Vercel-style functions are ephemeral, stateless,
+read-only outside `/tmp`, and time-capped well below a multi-turn agent
+run. Every one of those is the opposite of what this needs: a working
+tree that persists across requests, worktrees that outlive the call that
+created them, in-process state for a proposal that spans several
+requests, and real `git` subprocesses against a real checkout. The
+agent's state *is* a filesystem with a repo in it. One long-lived process
+with a writable disk isn't a convenience here — it's what git-native
+means once you stop treating git as a metaphor.
 
 ---
 
