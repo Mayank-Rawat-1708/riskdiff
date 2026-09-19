@@ -3,7 +3,7 @@ import cors from "cors";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { config, buildModelChain } from "./config.js";
+import { config, buildModelChain, describeEnvironment } from "./config.js";
 import { initRepo, repoMode, getLastPushError, primaryDir } from "./repoManager.js";
 import { reconcileFromGit } from "./proposalStore.js";
 import { rulesRouter } from "./routes/rules.js";
@@ -55,7 +55,8 @@ async function main() {
   }
 
   app.listen(config.port, () => {
-    console.log(`RiskDiff server listening on :${config.port} (git runtime mode: ${mode})`);
+    console.log(`RiskDiff listening on :${config.port}`);
+    console.log(describeEnvironment());
   });
 }
 
