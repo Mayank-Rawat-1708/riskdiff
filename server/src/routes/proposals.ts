@@ -10,6 +10,7 @@ import {
   MergeConflictError,
 } from "../repoManager.js";
 import { runAgentTurn, AgentCancelledError, AllProvidersFailedError } from "../agentRunner.js";
+import { buildModelChain } from "../config.js";
 import * as store from "../proposalStore.js";
 import type { ProposalTurn, ProposalView } from "../types.js";
 
@@ -149,6 +150,14 @@ proposalsRouter.post("/", async (req, res) => {
   const { incidentDescription } = req.body as { incidentDescription?: string };
   if (!incidentDescription?.trim()) {
     return res.status(400).json({ error: "Describe what you're seeing before drafting a proposal." });
+  }
+  if (buildModelChain().length === 0) {
+    // Checked before the worktree exists: a deployment with no key can
+    // never draft, and leaving an empty branch behind for every attempt
+    // just litters the repo the product is supposed to keep readable.
+    return res.status(503).json({
+      error: "No model provider is configured, so there is nothing to draft with. Set an API key and restart.",
+    });
   }
 
   let handle;

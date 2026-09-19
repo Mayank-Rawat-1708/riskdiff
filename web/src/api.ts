@@ -3,6 +3,7 @@ export interface RuleSummary {
   description: string;
   severity?: string;
   action?: string;
+  condition?: Record<string, string>;
 }
 
 export interface HistoryEntry {

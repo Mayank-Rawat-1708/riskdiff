@@ -14,6 +14,10 @@ const SHIPPED_REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.ur
 const RULESET_REL = path.join(config.agentSubdir, "rules", "active-ruleset.yaml");
 const MEMORY_REL = path.join(config.agentSubdir, "memory", "MEMORY.md");
 const TRANSCRIPTS_DIR_REL = path.join(config.agentSubdir, "proposals");
+// Per-session state the gitagent SDK writes into the directory it runs
+// against. agent/.gitignore keeps it untracked in a fresh repo; this
+// keeps it out of commits in a repo that already tracked it.
+const SDK_STATE_REL = path.join(config.agentSubdir, ".gitagent");
 
 const PRIMARY_DIR = path.join(config.runtimeDir, "primary");
 const WORKTREES_DIR = path.join(config.runtimeDir, "worktrees");
@@ -95,7 +99,14 @@ export function transcriptRelFor(branch: string): string {
  *  Excluded from the "agent touched files it shouldn't have" warning,
  *  because the agent didn't touch them -- we did. */
 function isServerOwned(relPath: string): boolean {
-  return relPath.split(path.sep).join("/").startsWith(TRANSCRIPTS_DIR_REL.split(path.sep).join("/") + "/");
+  const p = relPath.split(path.sep).join("/");
+  return p.startsWith(TRANSCRIPTS_DIR_REL.split(path.sep).join("/") + "/");
+}
+
+/** Runtime noise that belongs to neither the agent nor the policy. */
+function isSdkState(relPath: string): boolean {
+  const p = relPath.split(path.sep).join("/");
+  return p === SDK_STATE_REL || p.startsWith(SDK_STATE_REL.split(path.sep).join("/") + "/");
 }
 
 export async function initRepo(): Promise<{ mode: "remote" | "local-only" }> {
@@ -192,7 +203,7 @@ export function parseRuleSummaries(yamlText: string): RuleSummary[] {
     const idMatch = line.match(/^\s*-\s+id:\s*(.+)$/);
     if (idMatch) {
       if (current?.id) rules.push(current as RuleSummary);
-      current = { id: idMatch[1].trim(), description: "" };
+      current = { id: idMatch[1].trim(), description: "", condition: {} };
       inCondition = false;
       foldingInto = null;
       continue;
@@ -219,6 +230,11 @@ export function parseRuleSummaries(yamlText: string): RuleSummary[] {
     // inside the nested `condition:` map. Rule-level keys (description,
     // action, severity) sit at 4 spaces; condition's own keys at 6.
     if (inCondition && indent <= conditionIndent) inCondition = false;
+
+    if (inCondition) {
+      current.condition = { ...(current.condition ?? {}), [key]: val.trim() };
+      continue;
+    }
 
     if (key === "description") {
       inCondition = false;
@@ -345,7 +361,9 @@ export async function commitProposalChanges(
 ): Promise<CommitOutcome> {
   const wg = simpleGit(handle.worktreeDir);
   const status = await wg.status();
-  const changed = [...new Set([...status.modified, ...status.not_added, ...status.created])];
+  const changed = [...new Set([...status.modified, ...status.not_added, ...status.created])].filter(
+    (f) => !isSdkState(f),
+  );
 
   const norm = (p: string) => p.split(path.sep).join("/");
   const agentChanged = changed.filter((f) => !isServerOwned(f));
@@ -359,7 +377,9 @@ export async function commitProposalChanges(
   }
 
   const after = await wg.status();
-  const toAdd = [...new Set([...after.modified, ...after.not_added, ...after.created])];
+  const toAdd = [...new Set([...after.modified, ...after.not_added, ...after.created])].filter(
+    (f) => !isSdkState(f),
+  );
   if (toAdd.length === 0) {
     return { unexpectedFileChanges: unexpected, hadChanges: false, rulesetChanged: false };
   }

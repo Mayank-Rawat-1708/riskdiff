@@ -3,6 +3,10 @@ export interface RuleSummary {
   description: string;
   severity?: string;
   action?: string;
+  /** The rule's actual condition, in file order. The description is
+   *  prose written by whoever last edited the rule and can drift from
+   *  what the rule does; these are the values that fire. */
+  condition?: Record<string, string>;
 }
 
 /**

@@ -110,6 +110,20 @@ export function PolicyPane({
             <div className={`rule sev-${r.severity ?? "none"} ${landedRuleIds.includes(r.id) ? "landed" : ""}`} key={r.id}>
               <div className="rule-id">{r.id}</div>
               <div className="rule-desc">{r.description}</div>
+              {/* The thresholds that actually fire. The description above
+                  is prose and can drift from them — after a threshold
+                  merge it routinely does, and an analyst reading only the
+                  sentence would be reading last month's rule. */}
+              {r.condition && Object.keys(r.condition).length > 0 && (
+                <dl className="cond">
+                  {Object.entries(r.condition).map(([k, v]) => (
+                    <div className="cond-pair" key={k}>
+                      <dt>{k === "type" ? "kind" : k}</dt>
+                      <dd>{v}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
               <div className="rule-meta">
                 <span>{r.severity ?? "—"}</span>
                 <span className="sep">/</span>

@@ -1,0 +1,7 @@
+# Per-session runtime state written by the gitagent SDK into whatever
+# directory it runs against. It is different on every proposal branch,
+# so committing it makes every pair of concurrent proposals conflict
+# with each other over a session id, puts a false "the agent touched
+# files outside the ruleset" warning in front of the analyst, and drops
+# noise into a log that is supposed to read as a policy changelog.
+.gitagent/
