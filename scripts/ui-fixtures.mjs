@@ -82,6 +82,16 @@ const HISTORY = [
 ];
 
 const COMMIT_DETAIL = {
+  b7e21c4a9f3d5e8c1b2a4d6f8e0c2a4b6d8f0e2c: {
+    rulesetDiff: "",
+    memoryDiff: `@@ -18,0 +19,5 @@
++### 2026-07-29 — rejected — proposed \`geo-mismatch\` amount threshold ₹20,000 → ₹5,000
++Analyst note: backtest showed the false-positive rate would roughly
++triple — many legitimate customers travel and make low-value
++cross-border purchases. Declined; revisit only if a new fraud pattern
++specifically targets low-value cross-border transactions.
+`,
+  },
   "3f9a1d7e5c2b8a4f6d0e2c4a6b8d0f2e4c6a8b0d": {
     rulesetDiff: `commit 3f9a1d7e5c2b8a4f6d0e2c4a6b8d0f2e4c6a8b0d
 diff --git a/agent/rules/active-ruleset.yaml b/agent/rules/active-ruleset.yaml
@@ -109,7 +119,7 @@ async function buildProposals() {
   if (SCENARIO !== "full") return [];
 
   const healthy = await backtest((r) => (r[0].condition.amount_threshold_inr = 25000));
-  const noisy = await backtest((r) => (r[1].condition.amount_threshold_inr = 5000));
+  const widerWindow = await backtest((r) => (r[0].condition.threshold_hours = 48));
   const fallbackBt = await backtest((r) => (r[2].condition.count_threshold = 3));
 
   return [
@@ -267,7 +277,7 @@ Backtest, widening threshold_hours from 24 to 48:
 
 Recommendation: marginal. The window change catches 3 more frauds and costs 19 more reviews.`,
           commitMsg: "Widen new-device velocity window to 48 hours",
-          backtest: noisy,
+          backtest: widerWindow,
           backtestError: null,
           unexpectedFileChanges: [],
           noRulesetChange: false,
@@ -280,7 +290,7 @@ Recommendation: marginal. The window change catches 3 more frauds and costs 19 m
           at: ago(188),
           text: `36 hours lands between the two, as you'd expect: catch rate 34.6% (+1.9pp), false positives 13.2% (+2.1pp). Fewer reviews than 48h for most of the catch. I've left the draft at 48 rather than changing it under you — say the word and I'll move it.`,
           commitMsg: "Widen new-device velocity window to 48 hours",
-          backtest: noisy,
+          backtest: widerWindow,
           backtestError: null,
           unexpectedFileChanges: [],
           noRulesetChange: true,

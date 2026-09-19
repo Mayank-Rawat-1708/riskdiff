@@ -178,6 +178,23 @@ export function EvidencePane({
   const running = proposal.phase === "running";
   const decidable = !running && proposal.hadChanges && !proposal.conflict;
 
+  // The analyst is the authority and is never blocked from merging. But
+  // a proposal that broke the agent's own rules shouldn't wear the same
+  // confident green as one that didn't — the button says what it is.
+  const hasOutput = proposal.turns.some((t) => t.role === "agent" && t.text.trim());
+  // A proposal recovered from git without its transcript has no turns
+  // but still has a real diff on its branch. That is the whole point of
+  // keeping the state in git: the conversation is gone, the change is
+  // not, and it can still be decided on.
+  const recoveredOnly = !hasOutput && proposal.hadChanges;
+  const decidableAtAll = hasOutput || proposal.hadChanges;
+  const violations = [
+    !backtest && "no backtest",
+    !lastAgentTurn?.commitMsg && "no commit message",
+    lastAgentTurn?.unexpectedFileChanges?.length && "files changed outside the ruleset",
+  ].filter(Boolean) as string[];
+  const clean = violations.length === 0;
+
   return (
     <section className="pane" aria-label="Evidence">
       <div className="pane-head">
@@ -207,12 +224,24 @@ export function EvidencePane({
                 {backtest ? (
                   <Backtest backtest={backtest} ruleIds={ruleIds} />
                 ) : (
-                  <Notice kind="pending" title="No backtest result attached">
-                    {lastAgentTurn?.backtestError
-                      ? `The backtest tool failed: ${lastAgentTurn.backtestError}`
-                      : "The agent proposed a change without running one."}{" "}
-                    RULES.md item 3 requires a backtest — treat this change as unvalidated, and prefer sending it back
-                    over merging it.
+                  <Notice
+                    kind="pending"
+                    title={recoveredOnly ? "The backtest went with the conversation" : "No backtest result attached"}
+                  >
+                    {recoveredOnly ? (
+                      <>
+                        This proposal was recovered from its branch after a restart. The rule change survived in git;
+                        the backtest that justified it did not. Send a revision to have it re-run before you decide.
+                      </>
+                    ) : (
+                      <>
+                        {lastAgentTurn?.backtestError
+                          ? `The backtest tool failed: ${lastAgentTurn.backtestError}`
+                          : "The agent proposed a change without running one."}{" "}
+                        RULES.md item 3 requires a backtest — treat this change as unvalidated, and prefer sending it
+                        back over merging it.
+                      </>
+                    )}
                   </Notice>
                 )}
               </div>
@@ -245,29 +274,55 @@ export function EvidencePane({
           </div>
         ) : running ? (
           <div className="why">The agent is still working. Stop the run before deciding.</div>
-        ) : (
+        ) : recoveredOnly ? (
+          <div className="why">
+            The conversation that produced this is gone, but the branch and its diff are intact — decide from the diff,
+            or send a revision to have the agent re-state its case.
+          </div>
+        ) : !decidableAtAll ? (
+          /* Nothing was ever proposed, so there is nothing to decide.
+             Recording a rejection here would put a decision in the
+             agent's memory that the analyst never actually made. */
+          <div className="why">
+            The agent never produced a proposal, so there's nothing to approve or reject. Send a revision to try again,
+            or discard the branch.
+          </div>
+        ) : clean ? (
           <div className="why">
             Approving squash-merges this branch into main and writes your note into the agent's memory in the same
             commit. Rejecting deletes the branch and records the decision anyway.
           </div>
+        ) : (
+          <div className="why warned">
+            This proposal broke the agent's own rules — {violations.join(", ")}. You can still merge it; nothing here
+            stops you. It just isn't validated.
+          </div>
         )}
-        <textarea
-          className="field"
-          value={note}
-          onChange={(e) => onNoteChange(e.target.value)}
-          rows={2}
-          disabled={running}
-          aria-label="Your reasoning"
-          placeholder="Your reasoning — goes into the commit and the agent's memory, so it doesn't re-propose this next week."
-        />
-        <div className="btn-row">
-          <button className="btn approve" onClick={onApprove} disabled={!!busy || !decidable}>
-            Approve and merge
-          </button>
-          <button className="btn danger" onClick={onReject} disabled={!!busy || running}>
-            Reject
-          </button>
-        </div>
+        {decidableAtAll && (
+          <>
+            <textarea
+              className="field"
+              value={note}
+              onChange={(e) => onNoteChange(e.target.value)}
+              rows={2}
+              disabled={running}
+              aria-label="Your reasoning"
+              placeholder="Your reasoning — goes into the commit and the agent's memory, so it doesn't re-propose this next week."
+            />
+            <div className="btn-row">
+              <button
+                className={`btn ${clean && !recoveredOnly ? "approve" : ""}`}
+                onClick={onApprove}
+                disabled={!!busy || !decidable}
+              >
+                {clean && !recoveredOnly ? "Approve and merge" : "Merge anyway"}
+              </button>
+              <button className="btn danger" onClick={onReject} disabled={!!busy || running}>
+                Reject
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </section>
   );
