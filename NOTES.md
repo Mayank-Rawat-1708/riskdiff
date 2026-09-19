@@ -2,6 +2,13 @@
 
 What's broken, what was cut, and the calls I'd defend in a review.
 
+This file has two halves. The first is the original build. The second,
+below the rule, is a later pass that verified every path instead of the
+happy one and rebuilt the UI. A few items in the first half were fixed
+in the second and are marked **[fixed in the second pass]** where they
+appear — they're left in rather than deleted, because what a thing
+looked like before someone went and checked is part of the record.
+
 ## Known broken / weak
 
 **The YAML handling is bespoke and will break if the schema grows.**
@@ -24,7 +31,8 @@ an approximation. Fixing it means computing windows from raw timestamps
 at backtest time — maybe 30 minutes of work, cut because a *visible
 wrong answer* was safer than an invisible one within the window.
 
-**Conversation history is in-memory; git state is not.** If the server
+**Conversation history is in-memory; git state is not.**
+**[fixed in the second pass — turns are committed to the branch]** If the server
 restarts (Render free tier sleeps), open proposals are recovered from
 their git worktrees on boot — branch, commits, and diff all survive —
 but the turn-by-turn conversation that produced them is gone, and the
@@ -48,7 +56,8 @@ exists programmatically in `agentRunner.ts`, where the shape is typed
 and certain — the shell version is a backstop for CLI use, not the
 primary enforcement.
 
-**Single active proposal in the UI.** The backend handles many
+**Single active proposal in the UI.** **[fixed in the second pass]**
+The backend handles many
 concurrent proposals (separate worktrees, a write lock on `main`); the
 frontend only surfaces one. Cut for scope, not blocked by anything.
 
@@ -100,8 +109,8 @@ have been easy to set the flag and not mean it.
 
 ## With a full week
 
-1. Conversation turns committed to the proposal branch, so the
-   reasoning is as diffable as the rule.
+1. ~~Conversation turns committed to the proposal branch, so the
+   reasoning is as diffable as the rule.~~ Built in the second pass.
 2. Real timestamp-window evaluation in the backtest, killing the
    10-minute approximation.
 3. A branch-comparison view: two competing proposals for the same
@@ -113,3 +122,196 @@ have been easy to set the flag and not mean it.
    the one I'd want to build most.
 5. Auth, and a per-analyst identity on commits so `git blame` on the
    ruleset names a person.
+
+---
+
+# Second pass
+
+The sections above are from the first build. This is what a second
+pass — verifying every path rather than the happy one, and treating
+the UI as design work — actually changed. Same rules: what's broken
+and why I left it that way is the part worth reading.
+
+## Bugs that were real
+
+**A merge conflict committed conflict markers into the live ruleset.**
+The worst one. `approveProposal` detected a failed squash-merge by
+catching an exception — but simple-git's `raw()` *resolves* on git's
+non-zero exit for a conflicted merge. So the code saw success,
+committed the conflicted working tree, and pushed a ruleset containing
+`<<<<<<< HEAD` to `main`. Two analysts approving two proposals that
+touch the same threshold is not an exotic scenario; it's Tuesday.
+Conflicts are now read off the index (`diff --diff-filter=U`), the
+failed merge is unwound so `main` is left clean, and the caller gets a
+typed `MergeConflictError` naming the paths. The lifecycle test
+reproduces it.
+
+**Rollback was offered on commits with nothing to roll back to.** The
+known one: the root commit has no parent, so `git show <root>^` could
+only throw. Also true of memory-only decision commits (a rejection
+changes no rule, so there's no rule state to restore). History entries
+carry `isRoot`/`canRevert`, the UI hides the button, and the server
+answers 422 with a sentence instead of 500 with a stack trace.
+
+**The backtest tool told the agent to destroy its own diff.** The tool
+returned `formatted_yaml` — a full re-serialization of the candidate
+ruleset — and its description said to write that verbatim into the
+file. Comments gone, every folded `description: >` unfolded onto one
+line. An agent following its own tool correctly would have turned every
+one-line threshold change into a whole-file diff, which is the one
+thing this product cannot afford. It now returns `patched_yaml`: the
+live file with only the changed scalars moved, by line position rather
+than parse/dump. A one-line rule change is a two-line diff (the
+threshold and the version bump), and `scripts/backtest-test.mjs`
+asserts that by actually diffing the output.
+
+While fixing it: the tool's YAML parser never folded `description: >`
+continuation lines, so every description parsed as empty and the
+patcher thought all three had changed on every call.
+
+**The SDK was committing session state to the policy repo.** GitAgent
+writes `agent/.gitagent/state.json` into whatever directory it runs
+against — a different session id on every proposal branch. It was
+being committed to each branch, shown to the analyst as "the agent
+edited files outside the ruleset" (a false accusation), merged onto
+`main` as noise, and making every pair of concurrent proposals
+conflict with each other over a session id. Found by running two real
+proposals and watching the conflict report name two paths when only one
+was real.
+
+**A push failure threw away a merge that had already happened.**
+`pushMain()` ran after the commit; if the push failed it unwound the
+whole approve as an error, so the analyst was told the merge failed
+when it had in fact landed locally. It's recorded and shown in the
+status bar as "merged locally, push failed" instead.
+
+**Rejections were invisible in the history.** The timeline was keyed on
+the ruleset file alone, and a rejection only touches `MEMORY.md`. So
+the one thing the product claims — that turning something down is part
+of the record — didn't appear in the record the UI renders.
+
+## What got built that wasn't there
+
+**The conversation is committed to the branch.** The old NOTES said
+this was the first thing I'd build with more time, and it was: turns
+are written to `agent/proposals/<branch>.json` in the same commit as
+the rule edit. It survives a restart (recovery now restores the
+conversation, not just the branch), it diffs, and on a decision it's
+stamped approved/rejected and archived onto `main` beside the change it
+argued for. Rejected conversations are archived too — otherwise the
+agent can read that something was rejected but never what it argued.
+
+**Agent runs are asynchronous.** The POST returns 202 and the client
+polls. A 60-second model call held open as an HTTP request is a spinner
+nobody can interrupt, a proposal nobody can switch away from, and
+something a platform will time out from under you. This is also what
+makes concurrent proposals real rather than theoretical, and it's where
+the Stop button comes from.
+
+**Concurrent proposals in the UI.** The backend always supported them;
+now the left pane lists them and each carries its own state. A branch
+that's fallen behind `main` says so before you click approve, not
+after.
+
+**A light theme that isn't an inversion**, driven by `data-theme` over
+CSS variables. The semantic colours are re-derived rather than flipped:
+amber legible as *text* on white is a bronze, which no longer reads as
+"attention" as a status dot, so marks carry their own token. Every
+foreground/background pair in both themes was checked against AA rather
+than eyeballed.
+
+**`scripts/ui-fixtures.mjs`** — a design harness serving the same API
+shapes with one proposal per UI state, so the screens that only exist
+when something goes wrong could be designed and reviewed in both themes
+without a provider key or a lucky failure. It is not part of the
+product and says so at the top. Its backtest numbers come from running
+the real tool against the real dataset, because designing a metrics
+panel against invented numbers teaches you the wrong thing about how
+they lay out.
+
+## Still broken, on purpose
+
+**The agent's success path was never run against a live provider.** No
+API key was available in the environment this pass was built in. Every
+git path, the backtest tool, and every UI state were exercised for
+real; the model call was exercised only through its *failure* half —
+with deliberately invalid keys, so the fallback chain genuinely walked
+all four providers and surfaced four real 401s. What that does not
+prove is that a real model reliably produces a well-formed proposal:
+that it writes `patched_yaml` verbatim, calls `backtest` before
+answering, and ends with `COMMIT_MSG`. Every one of those has a
+designed UI state for when it doesn't, which is the right defence, but
+"the agent behaves" is an untested claim and I'd rather say so than
+imply otherwise. Drop a key in `.env` and the path is one click away.
+
+**The backtest's frequency rule still only understands a 10-minute
+window.** Unchanged from the first pass, and for the same reason: the
+dataset precomputes `account_tx_count_10min`, the tool warns loudly
+rather than silently returning a wrong number, and the UI surfaces the
+warning verbatim next to the metric it qualifies. A visible
+approximation beats an invisible one. Real timestamp-window evaluation
+is maybe thirty minutes of work and it's the first thing I'd do next.
+
+**The YAML handling is still bespoke, just less likely to be wrong.**
+It's now a line-position patcher rather than a parser plus a
+serializer, which is strictly better for diffs and strictly worse for
+schema growth. The mitigation is that it checks itself: the patched
+text is re-parsed and compared against the ruleset that was actually
+scored, and if they disagree it falls back to full re-serialization and
+says so in `warnings`. A wrong file is worse than an ugly diff, and the
+analyst is told which one they got. A comment-preserving YAML CST is
+still the right answer if the schema grows.
+
+**Polling, not streaming.** The client polls every 1.5s while a run is
+in flight. SSE would be tidier and the agent's status is coarse enough
+(one label, elapsed time) that polling costs nothing an analyst can
+perceive. Streaming *tokens* I'd still leave out, for the reason in the
+first pass: you read the backtest before you act, so honest status
+beats watching text land.
+
+**Archived transcripts accumulate on `main`.** Every decided proposal
+leaves a JSON file in `agent/proposals/`. That's the point — it's the
+audit trail the `compliance` block claims — but nothing prunes it, and
+at a few thousand proposals the directory would want a year-partitioned
+layout and the recovery scan would want an index.
+
+**Still no auth.** Anyone with the URL is "the analyst", which is
+obviously wrong for a tool that edits fraud policy, and still out of
+scope. It's the only item on this list I'd call a blocker for anything
+real.
+
+**The `agent/.gitignore` fix is a bandage on someone else's design.**
+The SDK writing mutable state into the working directory it operates on
+is the actual problem; ignoring the file is what I can do from outside
+it. If `.gitagent/` ever grows to hold something worth keeping, this
+silently discards it.
+
+## Calls worth defending, second pass
+
+**The analyst is never blocked from merging, but the button tells the
+truth.** A proposal with no backtest, no `COMMIT_MSG`, and files
+touched outside the ruleset can still be merged — the human holds the
+authority, and a tool that overrides them is a different product. What
+changes is the affordance: it loses the green, reads "Merge anyway",
+and the line above it names what was broken. Blocking would have been
+easier to implement and worse to use.
+
+**A failed run offers no Approve or Reject at all.** Recording a
+rejection for a branch the agent never wrote to would put a decision in
+the agent's memory that the analyst never made — and that memory is
+read back before every future draft. A lie in the record is worse than
+a missing one. It offers Discard, which leaves no trace because nothing
+happened.
+
+**A proposal recovered without its transcript is still decidable.**
+The conversation is gone; the diff isn't. That's the whole argument for
+keeping the state in git rather than in the server, so the UI honours
+it — you decide from the diff, and the missing backtest is explained as
+lost with the conversation rather than blamed on the agent.
+
+**The left pane shows thresholds, not just descriptions.** Rule prose
+is written by whoever last edited the rule and drifts from the
+condition. Immediately after merging a threshold change in testing, the
+live pane read "over ₹50,000" for a rule that now fires at 25,000. The
+condition is rendered underneath in file order. It makes the pane
+denser and it makes it true.
