@@ -77,17 +77,64 @@ Each of these is load-bearing, not decoration:
 
 ## Running it
 
+Node 20 or newer.
+
 ```bash
-cp .env.example .env     # add at least one model API key
+git clone https://github.com/Mayank-Rawat-1708/riskdiff.git
+cd riskdiff
+cp .env.example .env     # then add one model API key, see below
 npm run install:all
 npm run build
 npm start                # http://localhost:8080
 ```
 
-With no `GIT_REPO_URL` set, it runs in **local-only mode**: it seeds a
+On boot the server prints what it resolved, so a misconfigured
+deployment says so before you click anything:
+
+```
+RiskDiff listening on :8080
+  .env         /path/to/riskdiff/.env
+  runtime dir  /tmp/riskdiff-runtime
+  git          local-only (no GIT_REPO_URL)
+  models       Groq / GPT-OSS 120B → Groq / GPT-OSS 20B → Groq / GPT-OSS Safeguard 20B
+```
+
+### What you need in `.env`
+
+Only one thing is required: **one model API key**, any of
+`GROQ_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`. Everything else
+has a working default, and blank means unset — leave a line empty and
+you get the default rather than an empty string.
+
+| | |
+|---|---|
+| `GROQ_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | At least one. The fallback chain is built from whichever are present; a provider with no key is skipped rather than tried and failed. |
+| `MODEL_CHAIN` | Optional. Comma-separated `provider:model` ids that replace the chain entirely — pin a model, or exercise the weak end of the chain deliberately. |
+| `AGENT_TIMEOUT_MS` | Optional, default 180000. Wall-clock ceiling on one model's attempt. |
+| `GIT_REPO_URL` + `GITHUB_PAT` | Optional. Leave both blank for local-only mode. |
+| `RUNTIME_DIR` | Optional, defaults to a temp directory. Where the server keeps its working clone. |
+| `PORT` | Optional, default 8080. |
+
+**Without any key**, the workbench still runs and most of it still
+works: the live ruleset, the decision history, every past diff, commit
+inspection and rollback all read from git and need no model. Only
+drafting a new proposal needs one, and the composer says so rather than
+failing when you press the button.
+
+**Without `GIT_REPO_URL`** it runs in local-only mode: it seeds a
 throwaway git repo from `agent/` and every git operation works
 normally, it just never pushes. Set `GIT_REPO_URL` + `GITHUB_PAT` to
 have approved changes pushed to a real repo.
+
+### A note on free provider tiers
+
+Groq's free tier allows 8,000 tokens per minute and 200,000 per day,
+per organisation. One agent turn measures 4,000–8,500 input tokens, so
+on that tier the workbench is comfortable with **one proposal at a
+time** and will rate-limit itself under concurrent use. It handles that
+visibly — the retry hint is honoured, every attempt and its reason
+appear in the UI — but if you are demoing several proposals in a row,
+expect to see the fallback chain working. See NOTES.md.
 
 ### Tests
 
@@ -98,16 +145,30 @@ a model being reachable:
 npm test
 ```
 
-- `npm run test:lifecycle` — 37 checks over the full git cycle:
-  concurrent proposals, a merge conflict on approval (and that `main`
-  is left clean afterwards), rejection, recovery of an open proposal
-  after a restart, the rollback guards, and that a one-line rule change
-  stays a one-line diff.
-- `npm run test:backtest` — 24 checks driving the backtest tool through
-  its real stdin/stdout contract, asserting on the *size of the
-  resulting diff* as well as the numbers.
-- `npm run test:smoke` — boots the server, reads the live ruleset,
-  shuts down.
+**`npm run test:lifecycle`** — 37 checks proving the git mechanics are
+real. It creates two concurrent proposals in separate worktrees, edits
+and commits on each, approves one (squash-merge + memory entry +
+archived conversation in a single commit), then approves the second and
+asserts that the conflict is caught, that `main` is left clean
+afterwards, and that no conflict markers reach the ruleset. It rejects
+the second and asserts the decision is still recorded. It simulates a
+server restart and asserts the open proposals come back from their
+branches with their conversations. It asserts the root commit refuses
+rollback, rolls back a real change as a forward commit, and checks
+nothing was rewritten. And it asserts that a one-line threshold change
+produces a one-line diff — the property the bespoke YAML handling
+exists to protect.
+
+**`npm run test:backtest`** — 24 checks driving the backtest tool
+through its real stdin/stdout contract: that the numbers are
+believable rather than suspiciously perfect, that both directions of
+the trade are reported, that unsupported inputs produce a warning
+rather than a confident wrong answer — and, for each kind of edit, the
+*size of the resulting diff*, by actually diffing the output against
+the live file.
+
+**`npm run test:smoke`** — boots the server, reads the live ruleset,
+shuts down.
 
 ### Designing without burning credits
 
@@ -131,16 +192,22 @@ skipping providers with no key rather than burning a call on a
 guaranteed auth failure:
 
 ```
-groq:openai/gpt-oss-120b → groq:llama-3.3-70b-versatile
-→ groq:llama-3.1-8b-instant → openai:gpt-4o-mini
+groq:openai/gpt-oss-120b → groq:openai/gpt-oss-20b
+→ groq:openai/gpt-oss-safeguard-20b → openai:gpt-4o-mini
 → anthropic:claude-sonnet-4-5
 ```
 
-Every attempt is surfaced in the UI rather than swallowed. If Groq is
-out of credits, the analyst sees *"Groq / GPT-OSS 120B failed — …, fell
-back to OpenAI / GPT-4o mini"* under the agent's response. A silent
-fallback would mean an analyst can't tell which model's judgment they're
-about to merge into production policy.
+Every attempt is surfaced in the UI rather than swallowed — the model
+that answered, the ones that didn't and why, how long each took and how
+many tokens it needed. A silent fallback would mean an analyst can't
+tell whose judgement is in the diff they're about to merge, and a 20B
+fallback and a 120B primary do not warrant the same amount of trust.
+
+Model ids are checked against the provider's live catalogue *and*
+against the SDK's own model registry, because the two disagree in both
+directions. Two ids sat dead in this chain for a while returning 404 on
+every call — invisible while the first model works. NOTES.md has the
+details.
 
 ## The interface
 
