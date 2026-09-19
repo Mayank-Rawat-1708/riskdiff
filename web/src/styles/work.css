@@ -7,6 +7,7 @@
   background: var(--surface);
 }
 .work-head .incident {
+  max-width: 78ch;
   font-size: 13px;
   line-height: 1.5;
   color: var(--text);
@@ -21,6 +22,11 @@
 
 .turns {
   padding: 4px 18px 18px;
+  /* A measure, not the width of the pane. On a wide monitor the
+     agent's prose would otherwise run to 120 characters a line, which
+     is the wrong shape for something you read closely before making a
+     decision from it. */
+  max-width: 78ch;
 }
 
 /* A transcript, not a chat. Each turn is labelled in the margin and the
