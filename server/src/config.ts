@@ -58,22 +58,59 @@ export interface ModelCandidate {
  * failed, so a Groq-only deployment never burns a call on a guaranteed
  * auth error.
  *
- * Every Groq id here was checked against GET /v1/models on a live key
- * and exercised with a tool-calling request. That check is not
- * ceremony: `llama-3.3-70b-versatile` and `llama-3.1-8b-instant` sat in
- * this chain long after Groq decommissioned them (2026-08-16) and
- * returned 404 on every call, which is invisible when the first model
- * in the chain is working and fatal when it isn't. If you change an id,
- * re-check it — https://console.groq.com/docs/deprecations.
+ * Every id here was checked twice: against GET /v1/models on a live key
+ * (does the provider still serve it?) and against the SDK's own model
+ * registry (can pi-ai construct it?). Both checks earned their place:
+ *
+ *  - `llama-3.3-70b-versatile` and `llama-3.1-8b-instant` sat in this
+ *    chain long after Groq decommissioned them (2026-08-16), 404ing on
+ *    every call. Invisible while the first model works; fatal when it
+ *    doesn't.
+ *  - `qwen/qwen3.8-27b` is live on Groq but absent from pi-ai's bundled
+ *    registry, so `getModel()` returns undefined and the SDK dies
+ *    dereferencing it ("Cannot read properties of undefined (reading
+ *    'headers')") in 0ms, before any HTTP call. The SDK's custom-
+ *    endpoint escape hatch (`provider:id@base-url`) does construct it,
+ *    but it ignores `constraints.maxTokens` and sends a
+ *    max_completion_tokens above Qwen's 16384 ceiling, so every request
+ *    400s. Left out rather than worked around.
+ *
+ * Note the registry is stale in both directions — it still lists the
+ * two dead llama ids — so the provider's own catalogue is the
+ * authority for what is live, and the registry only for what the SDK
+ * can build. If you change an id, check both.
+ * https://console.groq.com/docs/deprecations
  */
+const PROVIDER_LABELS: Record<string, string> = { groq: "Groq", openai: "OpenAI", anthropic: "Anthropic" };
+
+function labelFor(model: string): string {
+  const [provider, ...rest] = model.split(":");
+  const id = rest.join(":");
+  return `${PROVIDER_LABELS[provider] ?? provider} / ${id.split("/").pop() ?? id}`;
+}
+
 export function buildModelChain(): ModelCandidate[] {
+  // Operator override: a comma-separated list of provider:model ids
+  // replaces the chain entirely. Pins a specific model when one starts
+  // misbehaving, and is how the fallback models get exercised in
+  // testing — otherwise the first entry always answers and the rest of
+  // the chain is only ever seen when it's already too late.
+  const override = env("MODEL_CHAIN");
+  if (override) {
+    return override
+      .split(",")
+      .map((m) => m.trim())
+      .filter(Boolean)
+      .map((model) => ({ model, label: labelFor(model) }));
+  }
+
   const chain: ModelCandidate[] = [];
 
   if (env("GROQ_API_KEY")) {
     chain.push(
       { model: "groq:openai/gpt-oss-120b", label: "Groq / GPT-OSS 120B" },
-      { model: "groq:qwen/qwen3.8-27b", label: "Groq / Qwen3.8 27B" },
       { model: "groq:openai/gpt-oss-20b", label: "Groq / GPT-OSS 20B" },
+      { model: "groq:openai/gpt-oss-safeguard-20b", label: "Groq / GPT-OSS Safeguard 20B" },
     );
   }
   if (env("OPENAI_API_KEY")) {

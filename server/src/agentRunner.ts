@@ -15,6 +15,25 @@ export class AgentCancelledError extends Error {
   }
 }
 
+/**
+ * Groq's 429 carries the wait in its message: "Please try again in
+ * 26.2725s". Falling straight down the chain on a rate limit is the
+ * wrong move — the TPM budget is per *organisation*, so the next model
+ * is just as rate-limited as the one that failed. Waiting the stated
+ * interval and retrying the same model is what actually works.
+ */
+function retryAfterMs(error: string): number | null {
+  const m = error.match(/try again in ([\d.]+)\s*s/i);
+  if (!m) return null;
+  const ms = Math.ceil(Number(m[1]) * 1000);
+  // Only worth holding the run open for a short wait.
+  return Number.isFinite(ms) && ms > 0 && ms <= 45_000 ? ms + 500 : null;
+}
+
+function isRateLimit(error: string): boolean {
+  return /\b429\b|rate limit/i.test(error);
+}
+
 export class AllProvidersFailedError extends Error {
   readonly attempts: ProviderAttempt[];
   constructor(attempts: ProviderAttempt[]) {
@@ -59,7 +78,18 @@ const PERMITTED_TOOLS = ["read", "write", "edit", "memory", "backtest"];
  * the ones whose names have to be scrubbed from the system prompt, not
  * just filtered out of the request.
  */
-const WITHHELD_TOOLS = ["cli", "task_tracker", "skill_learner", "capture_photo"];
+const WITHHELD_TOOLS = ["cli", "task_tracker", "skill_learner", "capture_photo", "agent-browser"];
+
+/**
+ * Tools no one advertised and the model invented anyway. The gpt-oss
+ * family is trained with a browser/search/python harness, and reaches
+ * for it unprompted: GPT-OSS 20B killed a whole run with "attempted to
+ * call tool 'search' which was not in request.tools". A hallucinated
+ * tool call fails the entire request at the provider, so naming the
+ * usual suspects as explicitly unavailable is cheaper than losing the
+ * turn to one.
+ */
+const COMMONLY_HALLUCINATED = ["search", "browser", "web_search", "python", "bash", "shell"];
 
 /**
  * Removes the SDK's references to tools it isn't being given.
@@ -87,9 +117,25 @@ const WITHHELD_TOOLS = ["cli", "task_tracker", "skill_learner", "capture_photo"]
 export function sanitizeSystemPrompt(prompt: string): { prompt: string; leaked: string[] } {
   const named = new RegExp("`(" + WITHHELD_TOOLS.join("|") + ")`|\\b(" + WITHHELD_TOOLS.join("|") + ")\\s+tool\\b");
 
-  // Whole top-level sections that exist only to drive withheld tools.
+  // Whole top-level sections that either drive withheld tools or
+  // describe a deployment this isn't. They also cost real money: the
+  // Groq free tier allows 8000 tokens per minute across the whole
+  // organisation, and a turn that exceeds it is rejected outright with
+  // a 413 rather than queued, so every block that doesn't earn its
+  // place is a block that can push a proposal over the edge.
+  //
+  //  - Task Learning & Skill Discovery: drives task_tracker and
+  //    skill_learner, neither of which is granted here.
+  //  - Workspace Directory: tells the agent where to write generated
+  //    artifacts and how to behave on voice, Telegram and WhatsApp.
+  //    This agent edits one YAML file and talks to one web UI.
+  //  - Memory: the SDK's generic version, which also casts the agent as
+  //    "newly awakened — curious and eager to understand the person
+  //    you're talking to". SOUL.md and DUTIES.md already say who this
+  //    agent is, considerably more precisely, and they contradict it.
+  const DROP_SECTIONS = /^#\s*(Task Learning & Skill Discovery|Workspace Directory|Memory)\b/i;
   const sections = prompt.split(/\n(?=# )/);
-  const kept = sections.filter((section) => !/^#\s*Task Learning & Skill Discovery/i.test(section.trim()));
+  const kept = sections.filter((section) => !DROP_SECTIONS.test(section.trim()));
 
   // Then sentence-level, so the Memory section keeps its first half
   // ("use the `memory` tool") and loses only its second ("you can also
@@ -102,14 +148,27 @@ export function sanitizeSystemPrompt(prompt: string): { prompt: string; leaked: 
         const sentences = line.split(/(?<=[.!?])\s+/).filter((sentence) => !named.test(sentence));
         return sentences.join(" ").trim();
       })
-      .filter((line, i, all) => line !== "" || (i > 0 && all[i - 1] !== ""))
-      .join("\n"),
+      // A scrubbed-away line can leave its own continuation behind — the
+      // skills block's "...you MUST load / the top match immediately
+      // before proceeding." became a dangling half-sentence. If a line
+      // was emptied, its indented continuations go with it.
+      .reduce<{ out: string[]; dropping: boolean }>(
+        (acc, line, i, all) => {
+          const wasEmptied = line === "" && all[i] === "" && /\S/.test(section.split("\n")[i] ?? "");
+          if (wasEmptied) return { out: acc.out, dropping: true };
+          if (acc.dropping && /^\s+\S/.test(line)) return acc;
+          if (line === "" && acc.out[acc.out.length - 1] === "") return { out: acc.out, dropping: false };
+          return { out: [...acc.out, line], dropping: false };
+        },
+        { out: [], dropping: false },
+      ).out.join("\n"),
   );
 
   let out = scrubbed.join("\n").replace(/\n{3,}/g, "\n\n").trim();
   const leaked = WITHHELD_TOOLS.filter((t) => new RegExp("`" + t + "`|\\b" + t + "\\s+tool\\b").test(out));
 
-  out += `\n\n# Tools available in this deployment\n\nExactly these: ${PERMITTED_TOOLS.join(", ")}. There is no shell, no task tracker and no skill learner here. Calling a tool outside that list fails the entire request, so do not attempt one.`;
+  out += `\n\n# Memory\n\nPast decisions are in memory/MEMORY.md. Read it before drafting — RULES.md item 6 — and name any prior entry that touches the rule you are changing.`;
+  out += `\n\n# Tools available in this deployment\n\nExactly these: ${PERMITTED_TOOLS.join(", ")}.\n\nThere is nothing else — no ${COMMONLY_HALLUCINATED.join(", no ")}, no task tracker, no skill learner. Calling a tool outside the list above fails the entire request at the provider and loses the turn, so never attempt one. Everything you need is a file in this directory, reachable with read.`;
   if (leaked.length) {
     out += ` In particular, ignore any instruction above to use ${leaked.join(" or ")} — ${leaked.length === 1 ? "it is" : "they are"} not available.`;
   }
@@ -221,15 +280,19 @@ export async function runAgentTurn(opts: {
     console.warn(`[agentRunner] could not pre-load the agent prompt (${String(err)}); using the SDK default`);
   }
 
-  for (const candidate of chain) {
-    if (opts.signal?.aborted) throw new AgentCancelledError();
-    const startedAt = Date.now();
-    try {
-      const messages: GCMessage[] = [];
-      const abortController = new AbortController();
-      const forward = () => abortController.abort();
-      opts.signal?.addEventListener("abort", forward, { once: true });
+  /** One call to one model. Never throws for provider problems — those
+   *  are results, because the caller has to decide whether to wait,
+   *  fall through, or give up, and each of those is visible in the UI. */
+  async function attemptOnce(candidate: { model: string; label: string }): Promise<
+    | { ok: true; text: string; resolvedModel?: string; costUsd: number | null; messages: GCMessage[] }
+    | { ok: false; error: string }
+  > {
+    const messages: GCMessage[] = [];
+    const abortController = new AbortController();
+    const forward = () => abortController.abort();
+    opts.signal?.addEventListener("abort", forward, { once: true });
 
+    try {
       const q = query({
         prompt: opts.prompt,
         dir: opts.agentDir,
@@ -237,7 +300,12 @@ export async function runAgentTurn(opts: {
         ...(systemPrompt ? { systemPrompt } : {}),
         allowedTools: PERMITTED_TOOLS,
         hooks: buildHooks(worktreeRoot),
-        maxTurns: 8,
+        // Enough for read → read → backtest → write → answer with room
+        // to recover from one mistake, and no more: every extra turn
+        // re-sends the whole conversation, and on an 8000 token/minute
+        // budget a long transcript is what turns a working proposal
+        // into a 413.
+        maxTurns: 6,
         abortController,
         constraints: { temperature: 0.2, maxTokens: 2048 },
       });
@@ -248,61 +316,82 @@ export async function runAgentTurn(opts: {
       let resolvedModel: string | undefined;
       let costUsd: number | null = null;
 
-      try {
-        for await (const msg of q) {
-          messages.push(msg);
-          if (msg.type === "assistant") {
-            if (msg.content.trim()) finalText = msg.content;
-            resolvedModel = msg.model ? `${msg.provider ?? ""}${msg.provider ? ":" : ""}${msg.model}` : resolvedModel;
-            if (typeof msg.usage?.costUsd === "number") costUsd = (costUsd ?? 0) + msg.usage.costUsd;
-            if (msg.stopReason === "error") {
-              sawHardError = true;
-              errorDetail = msg.errorMessage ?? "assistant stopReason=error";
-            }
-            if (msg.stopReason === "aborted") throw new AgentCancelledError();
-          }
-          if (msg.type === "system" && msg.subtype === "error") {
+      for await (const msg of q) {
+        messages.push(msg);
+        if (msg.type === "assistant") {
+          if (msg.content.trim()) finalText = msg.content;
+          resolvedModel = msg.model ? `${msg.provider ?? ""}${msg.provider ? ":" : ""}${msg.model}` : resolvedModel;
+          if (typeof msg.usage?.costUsd === "number") costUsd = (costUsd ?? 0) + msg.usage.costUsd;
+          if (msg.stopReason === "error") {
             sawHardError = true;
-            errorDetail = msg.content;
+            errorDetail = msg.errorMessage ?? "assistant stopReason=error";
           }
+          if (msg.stopReason === "aborted") throw new AgentCancelledError();
         }
-      } finally {
-        opts.signal?.removeEventListener("abort", forward);
+        if (msg.type === "system" && msg.subtype === "error") {
+          sawHardError = true;
+          errorDetail = msg.content;
+        }
       }
 
       if (opts.signal?.aborted) throw new AgentCancelledError();
-
       if (sawHardError || !finalText.trim()) {
+        return { ok: false, error: errorDetail || "the model returned an empty response" };
+      }
+      return { ok: true, text: finalText, resolvedModel, costUsd, messages };
+    } catch (err) {
+      if (err instanceof AgentCancelledError || opts.signal?.aborted) throw new AgentCancelledError();
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    } finally {
+      opts.signal?.removeEventListener("abort", forward);
+    }
+  }
+
+  function sleep(ms: number): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const t = setTimeout(resolve, ms);
+      opts.signal?.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(t);
+          reject(new AgentCancelledError());
+        },
+        { once: true },
+      );
+    });
+  }
+
+  for (const candidate of chain) {
+    // At most one wait-and-retry per model, then move on.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (opts.signal?.aborted) throw new AgentCancelledError();
+      const startedAt = Date.now();
+      const result = await attemptOnce(candidate);
+      const ms = Date.now() - startedAt;
+
+      if (result.ok) {
         providerAttempts.push({
           model: candidate.model,
           label: candidate.label,
-          ok: false,
-          error: errorDetail || "the model returned an empty response",
-          ms: Date.now() - startedAt,
+          ok: true,
+          resolvedModel: result.resolvedModel,
+          ms,
         });
-        continue;
+        const { text, commitMsg } = extractCommitMsg(result.text);
+        const { backtest, error: backtestError } = extractBacktest(result.messages);
+        return { text, commitMsg, backtest, backtestError, providerAttempts, costUsd: result.costUsd };
       }
 
-      providerAttempts.push({
-        model: candidate.model,
-        label: candidate.label,
-        ok: true,
-        resolvedModel,
-        ms: Date.now() - startedAt,
-      });
-      const { text, commitMsg } = extractCommitMsg(finalText);
-      const { backtest, error: backtestError } = extractBacktest(messages);
-      return { text, commitMsg, backtest, backtestError, providerAttempts, costUsd };
-    } catch (err) {
-      if (err instanceof AgentCancelledError || opts.signal?.aborted) throw new AgentCancelledError();
+      const wait = attempt === 0 && isRateLimit(result.error) ? retryAfterMs(result.error) : null;
       providerAttempts.push({
         model: candidate.model,
         label: candidate.label,
         ok: false,
-        error: err instanceof Error ? err.message : String(err),
-        ms: Date.now() - startedAt,
+        error: wait ? `${result.error} — waited ${Math.round(wait / 1000)}s and retried` : result.error,
+        ms,
       });
-      continue;
+      if (!wait) break;
+      await sleep(wait);
     }
   }
 
