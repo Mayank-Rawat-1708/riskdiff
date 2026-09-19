@@ -44,6 +44,10 @@
   scrollbar-width: none;
   flex: 1;
   min-width: 0;
+  /* In a narrow window the status items scroll rather than wrap or
+     truncate. The fade says so — a hard clip just looks broken. */
+  mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
 }
 .statusbar .items::-webkit-scrollbar {
   display: none;
@@ -238,6 +242,15 @@
 }
 
 /* --------------------------------------------------------- narrow view */
+
+@media (max-width: 760px) {
+  .brand {
+    padding: 0 12px 0 14px;
+  }
+  .stat {
+    padding: 0 10px;
+  }
+}
 
 @media (max-width: 1080px) {
   /* Stacked, and the document scrolls rather than three nested
