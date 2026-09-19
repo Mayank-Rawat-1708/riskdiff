@@ -107,6 +107,37 @@ While fixing it: the tool's YAML parser never folded `description: >`
 continuation lines, so every description parsed as empty and the
 patcher thought all three had changed on every call.
 
+### Two things only driving the real UI could have found
+
+**An iteration that backtests but never writes.** Asked to try 35,000
+instead of 25,000, the agent read the branch, called `backtest`
+correctly on 25,000 → 35,000, reported accurate deltas — and never
+wrote the file. The server caught it (`noRulesetChange`) and the
+workbench said so plainly ("The agent replied but left
+rules/active-ruleset.yaml untouched"), which is the designed
+behaviour and the reason it was visible at all. But it's a
+reliability gap: the iterate prompt was a paragraph where the initial
+prompt was a numbered procedure, and the weaker model followed the
+one that was easier to follow. The iterate instructions are now
+numbered, and step 3 says in as many words that a revision which
+stops before writing is not a revision.
+
+Worth being precise about what is *not* fixed here: the server does
+not write the file on the agent's behalf when this happens. It could
+— `patched_yaml` is right there — but the agent may have backtested
+an option in order to argue against it, and silently applying a
+change it decided against would be worse than showing the analyst
+that nothing happened.
+
+**A commit message describing a change that wasn't made.** Following
+directly from the above: `approve` took its message from the last
+agent turn, and that turn was the one that backtested 35,000 and
+wrote nothing. A merge of a 25,000 threshold was about to be logged
+on `main` as "Adjust new-device velocity threshold to 35,000" —
+permanently, in the file that is supposed to read as a policy
+changelog. The message now comes from the last turn that actually
+changed the ruleset.
+
 ### Rollback offered where rollback is impossible
 
 The root commit has no parent, so `git show <root>^` could only throw.
@@ -153,6 +184,21 @@ chargebacks → `velocity-new-device`).
 That includes one run pinned to the weakest model in the chain
 (GPT-OSS 20B via `MODEL_CHAIN`), which was rate-limited, waited out the
 retry, and then produced a correct `geo-mismatch` proposal.
+
+The full analyst loop was then driven through the UI against the live
+key: propose → iterate → approve → inspect the merged commit → roll
+back, and separately a rejection. Both primary models were
+rate-limited at the time, so the proposal that got merged was drafted
+by **GPT-OSS Safeguard 20B** — the third entry in the chain — which is
+the fallback working exactly as advertised, visible in the provider
+trail with the two struck-through attempts above it. Approval put the
+rule change, the analyst's note in `MEMORY.md` and the archived
+conversation in one commit; rollback wrote a forward commit leaving
+both itself and the change it undid in the log; rejection deleted the
+branch and still recorded the reasoning. The rejection was exercised
+on a hand-seeded branch rather than a live draft, because by that
+point the day's token allowance was gone — the same path is asserted
+four ways in the lifecycle test.
 
 **Every failure in testing was the provider's rate limit, not the
 agent.** This key is on Groq's free tier: 8,000 tokens per minute and

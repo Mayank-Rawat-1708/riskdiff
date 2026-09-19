@@ -45,10 +45,22 @@ Analyst feedback:
 {{INPUT}}
 """
 
-Re-read your current draft of rules/active-ruleset.yaml on this branch,
-re-run the backtest tool with the full revised rule list, write its
-patched_yaml output verbatim back to rules/active-ruleset.yaml, and
-report the updated findings. End with a COMMIT_MSG line.`;
+Do all of the following, in this order. A revision that stops before
+step 3 is not a revision — the analyst sees the same diff they already
+rejected, and the workbench will tell them you changed nothing.
+
+1. Read rules/active-ruleset.yaml on this branch. It already contains
+   your previous change, so the numbers in it are your starting point,
+   not the original ones.
+2. Call the backtest tool with the full revised rule list.
+3. Write the tool's patched_yaml output verbatim to
+   rules/active-ruleset.yaml using the write tool. This is the step
+   that makes the revision real. Do not skip it, and do not retype the
+   file by hand.
+4. Report the updated catch-rate and false-positive deltas, and say
+   plainly whether the feedback improved the trade or not — if the
+   analyst's suggestion is worse than your original, say so.
+5. End with a COMMIT_MSG line.`;
 
 function fallbackCommitMsg(incidentDescription: string): string {
   const words = incidentDescription.trim().split(/\s+/).slice(0, 8).join(" ");
@@ -211,8 +223,19 @@ proposalsRouter.post("/:id/approve", async (req, res) => {
   }
 
   const { analystNote } = req.body as { analystNote?: string };
-  const lastAgentTurn = [...p.turns].reverse().find((t) => t.role === "agent");
-  const commitMsg = lastAgentTurn?.commitMsg || fallbackCommitMsg(p.incidentDescription);
+  // The message has to come from the turn that actually changed the
+  // ruleset, not simply the last one. An iteration that backtested an
+  // alternative and then didn't write it still carries a COMMIT_MSG
+  // describing the change it decided against — observed live, where a
+  // merge of a 25,000 threshold was about to be logged as
+  // "Adjust new-device velocity threshold to 35,000".
+  const authoring = [...p.turns]
+    .reverse()
+    .find((t) => t.role === "agent" && t.commitMsg && t.noRulesetChange !== true);
+  const commitMsg =
+    authoring?.commitMsg ||
+    [...p.turns].reverse().find((t) => t.role === "agent" && t.commitMsg)?.commitMsg ||
+    fallbackCommitMsg(p.incidentDescription);
 
   try {
     await approveProposal(p.handle, commitMsg, analystNote ?? "");
