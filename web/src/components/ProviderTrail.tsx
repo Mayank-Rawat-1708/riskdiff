@@ -14,13 +14,18 @@ export function ProviderTrail({ attempts }: { attempts?: ProviderAttempt[] }) {
   const failed = attempts.filter((a) => !a.ok);
   const used = attempts.find((a) => a.ok);
 
+  const cost = (a: ProviderAttempt) =>
+    [a.ms ? `${(a.ms / 1000).toFixed(1)}s` : null, a.peakInputTokens ? `${(a.peakInputTokens / 1000).toFixed(1)}k tok` : null]
+      .filter(Boolean)
+      .join(" · ");
+
   if (!failed.length && used) {
     return (
       <div className="trail-summary">
         <span className="dot ok" />
         <span>drafted by</span>
         <span className="used-model">{used.label}</span>
-        {used.ms ? <span className="ms">{(used.ms / 1000).toFixed(1)}s</span> : null}
+        <span className="ms">{cost(used)}</span>
       </div>
     );
   }
@@ -34,7 +39,7 @@ export function ProviderTrail({ attempts }: { attempts?: ProviderAttempt[] }) {
           <span className="why" title={a.error}>
             {a.ok ? (failed.length ? "used after fallback" : "used") : a.error}
           </span>
-          {a.ms ? <span className="ms">{(a.ms / 1000).toFixed(1)}s</span> : null}
+          <span className="ms">{cost(a)}</span>
         </div>
       ))}
     </div>

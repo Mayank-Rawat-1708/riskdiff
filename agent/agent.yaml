@@ -23,15 +23,24 @@ model:
     temperature: 0.2
     max_tokens: 2048
 
-tools: [read, write, memory]
-# `cli` is deliberately left out (see RULES.md) — the agent never
-# shells out. `write` is scoped structurally, not by tool name: the
-# server only ever calls `query()` against a working tree checked out
-# on a `proposal/*` branch, never `main`, and `hooks/hooks.yaml` +
-# server/src/agentRunner.ts's own preToolUse hook both independently
-# refuse a `write` if the current branch is `main` — belt and
-# suspenders, one file-based (works from the bare CLI too), one
-# programmatic (works in-process). See NOTES.md.
+tools: [read, write]
+# Read the repository, write its one file. Everything else the harness
+# builds in is withheld, and the server enforces that list — see
+# PERMITTED_TOOLS in server/src/agentRunner.ts for the reasoning per
+# tool. The short version: `cli` is a shell, and a shell can move
+# `main`; `memory` and `skill_learner` run their own `git commit`,
+# which would put commits on the proposal branch that the server never
+# authored and that squash-merge into `main` on approval. Memory here
+# is written by the server at decision time, so the agent only reads
+# it.
+#
+# `write` is scoped structurally as well as by name: the server only
+# ever calls `query()` against a working tree checked out on a
+# `proposal/*` branch, never `main`, and `hooks/hooks.yaml` +
+# agentRunner.ts's own preToolUse hook both independently refuse a
+# `write` if the current branch is `main` — belt and suspenders, one
+# file-based (works from the bare CLI too), one programmatic (works
+# in-process). See NOTES.md.
 # `backtest` (tools/backtest.yaml) is auto-discovered from this
 # directory and needs no entry here.
 

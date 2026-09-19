@@ -26,6 +26,7 @@ export interface ProviderAttempt {
   error?: string;
   resolvedModel?: string;
   ms?: number;
+  peakInputTokens?: number;
 }
 
 export interface BacktestScores {

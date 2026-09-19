@@ -75,26 +75,37 @@ export interface AgentRunResult {
 }
 
 /**
- * The tools this deployment grants the agent.
+ * The tools this deployment grants the agent: read the repository,
+ * write its one file, score the result. That is the whole job.
  *
- * `cli` is deliberately absent. The product's central claim is that the
- * agent cannot reach `main`, and a shell inside the worktree is a way
- * to reach it — `git update-ref refs/heads/main <sha>` moves the branch
- * even while it is checked out elsewhere, and a single `cli` call can
- * do that before the branch guard gets to look again. `skill_learner`
- * is absent for a narrower reason: crystallizing a skill writes
- * `skills/<name>/SKILL.md` **and runs its own git commit**, which would
- * put commits on the proposal branch outside the server's control and
- * squash-merge them into main on approval.
+ * Everything else the SDK builds in is withheld, and three of them for
+ * the same reason — they commit to git behind the server's back, on the
+ * proposal branch, with messages the server didn't choose, and those
+ * commits squash-merge into `main` on approval:
+ *
+ *  - `memory` shells out to `git add && git commit` on every save. It
+ *    also interpolates the model's own message into that shell string.
+ *    Memory here is written by the server at decision time — that's the
+ *    product — so the agent only ever needs to *read* MEMORY.md.
+ *  - `skill_learner` writes skills/<name>/SKILL.md and commits it.
+ *  - `cli` is a shell, which is a way to reach `main`:
+ *    `git update-ref refs/heads/main <sha>` moves the branch even while
+ *    it's checked out elsewhere, and one call does that before the
+ *    branch guard looks again.
+ *
+ * `edit` is dropped for a duller reason: the skill has the agent write
+ * `patched_yaml` verbatim, so nothing needs a partial edit, and its
+ * schema is the most expensive of the lot (~270 tokens of a per-minute
+ * budget of 8,000).
  */
-const PERMITTED_TOOLS = ["read", "write", "edit", "memory", "backtest"];
+const PERMITTED_TOOLS = ["read", "write", "backtest"];
 
 /**
  * Tools the SDK builds in but this deployment does not grant. These are
  * the ones whose names have to be scrubbed from the system prompt, not
  * just filtered out of the request.
  */
-const WITHHELD_TOOLS = ["cli", "task_tracker", "skill_learner", "capture_photo", "agent-browser"];
+const WITHHELD_TOOLS = ["cli", "edit", "memory", "task_tracker", "skill_learner", "capture_photo", "agent-browser"];
 
 /**
  * Tools no one advertised and the model invented anyway. The gpt-oss

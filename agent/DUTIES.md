@@ -11,7 +11,10 @@ file `gitagent audit --compliance` (or our own equivalent check in
 - Writes proposal rationale and a commit message.
 - Has read access to: `rules/active-ruleset.yaml`, `data/transactions.csv`,
   `memory/MEMORY.md`.
-- Has write access to: files on its own `proposal/*` branch only.
+- Has write access to: `rules/active-ruleset.yaml` on its own
+  `proposal/*` branch, via the `write` tool. It holds no tool that can
+  commit — every commit on every branch is made by the server, so the
+  git history has one author and one set of rules about what goes in it.
 - Has no access to: `main` directly, no network access beyond the model
   provider call itself, no access to real customer PII (the dataset is
   synthetic — see `data/transactions.csv` header comment).
