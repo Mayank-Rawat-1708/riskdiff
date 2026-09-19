@@ -34,6 +34,22 @@ function isRateLimit(error: string): boolean {
   return /\b429\b|rate limit/i.test(error);
 }
 
+/**
+ * Wall-clock ceiling on one model's attempt.
+ *
+ * Nothing else bounds it. agent.yaml declares `runtime.timeout: 90` but
+ * nothing in this path enforces it; pi-ai builds an OpenAI client
+ * without setting maxRetries or timeout, so the official SDK's defaults
+ * apply (two internal retries, honouring Retry-After, with a 10-minute
+ * per-request ceiling) and that is *per turn*. A rate-limited six-turn
+ * proposal measured 2,203 seconds before answering. It answered
+ * correctly, which is worse than failing — nobody watches a workbench
+ * for thirty-seven minutes, and the run is holding a worktree open the
+ * whole time. Better to give up on this model, say so in the trail, and
+ * let the chain or the analyst decide what happens next.
+ */
+const ATTEMPT_TIMEOUT_MS = Number(process.env.AGENT_TIMEOUT_MS ?? 180_000);
+
 export class AllProvidersFailedError extends Error {
   readonly attempts: ProviderAttempt[];
   constructor(attempts: ProviderAttempt[]) {
@@ -284,13 +300,28 @@ export async function runAgentTurn(opts: {
    *  are results, because the caller has to decide whether to wait,
    *  fall through, or give up, and each of those is visible in the UI. */
   async function attemptOnce(candidate: { model: string; label: string }): Promise<
-    | { ok: true; text: string; resolvedModel?: string; costUsd: number | null; messages: GCMessage[] }
+    | {
+        ok: true;
+        text: string;
+        resolvedModel?: string;
+        costUsd: number | null;
+        peakInputTokens: number;
+        messages: GCMessage[];
+      }
     | { ok: false; error: string }
   > {
     const messages: GCMessage[] = [];
     const abortController = new AbortController();
     const forward = () => abortController.abort();
     opts.signal?.addEventListener("abort", forward, { once: true });
+
+    // A deadline abort and an analyst pressing Stop both surface as the
+    // same aborted stream, so the reason is recorded before aborting.
+    let timedOut = false;
+    const deadline = setTimeout(() => {
+      timedOut = true;
+      abortController.abort();
+    }, ATTEMPT_TIMEOUT_MS);
 
     try {
       const q = query({
@@ -315,6 +346,7 @@ export async function runAgentTurn(opts: {
       let errorDetail = "";
       let resolvedModel: string | undefined;
       let costUsd: number | null = null;
+      let peakInputTokens = 0;
 
       for await (const msg of q) {
         messages.push(msg);
@@ -322,11 +354,17 @@ export async function runAgentTurn(opts: {
           if (msg.content.trim()) finalText = msg.content;
           resolvedModel = msg.model ? `${msg.provider ?? ""}${msg.provider ? ":" : ""}${msg.model}` : resolvedModel;
           if (typeof msg.usage?.costUsd === "number") costUsd = (costUsd ?? 0) + msg.usage.costUsd;
+          if (typeof msg.usage?.inputTokens === "number") {
+            peakInputTokens = Math.max(peakInputTokens, msg.usage.inputTokens);
+          }
           if (msg.stopReason === "error") {
             sawHardError = true;
             errorDetail = msg.errorMessage ?? "assistant stopReason=error";
           }
-          if (msg.stopReason === "aborted") throw new AgentCancelledError();
+          if (msg.stopReason === "aborted") {
+            if (timedOut) return { ok: false, error: timeoutMessage() };
+            throw new AgentCancelledError();
+          }
         }
         if (msg.type === "system" && msg.subtype === "error") {
           sawHardError = true;
@@ -334,17 +372,24 @@ export async function runAgentTurn(opts: {
         }
       }
 
+      if (timedOut) return { ok: false, error: timeoutMessage() };
       if (opts.signal?.aborted) throw new AgentCancelledError();
       if (sawHardError || !finalText.trim()) {
         return { ok: false, error: errorDetail || "the model returned an empty response" };
       }
-      return { ok: true, text: finalText, resolvedModel, costUsd, messages };
+      return { ok: true, text: finalText, resolvedModel, costUsd, peakInputTokens, messages };
     } catch (err) {
+      if (timedOut) return { ok: false, error: timeoutMessage() };
       if (err instanceof AgentCancelledError || opts.signal?.aborted) throw new AgentCancelledError();
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     } finally {
+      clearTimeout(deadline);
       opts.signal?.removeEventListener("abort", forward);
     }
+  }
+
+  function timeoutMessage(): string {
+    return `no answer within ${Math.round(ATTEMPT_TIMEOUT_MS / 1000)}s — gave up on this model`;
   }
 
   function sleep(ms: number): Promise<void> {
@@ -376,13 +421,17 @@ export async function runAgentTurn(opts: {
           ok: true,
           resolvedModel: result.resolvedModel,
           ms,
+          peakInputTokens: result.peakInputTokens || undefined,
         });
         const { text, commitMsg } = extractCommitMsg(result.text);
         const { backtest, error: backtestError } = extractBacktest(result.messages);
         return { text, commitMsg, backtest, backtestError, providerAttempts, costUsd: result.costUsd };
       }
 
-      const wait = attempt === 0 && isRateLimit(result.error) ? retryAfterMs(result.error) : null;
+      const wait =
+        attempt === 0 && isRateLimit(result.error) && !result.error.startsWith("no answer within")
+          ? retryAfterMs(result.error)
+          : null;
       providerAttempts.push({
         model: candidate.model,
         label: candidate.label,

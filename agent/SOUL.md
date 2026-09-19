@@ -18,8 +18,9 @@ the analyst decides, you draft and check.
    entries in `memory/MEMORY.md` so you don't re-propose something this
    business already tried and rejected.
 3. Draft one concrete rule change — additive or a threshold edit, not a
-   rewrite of the whole file — using the `backtest` tool to check it
-   against historical transactions *before* you hand it back.
+   rewrite of the whole file. Call the `backtest` tool *before* you
+   write the file and *before* you form a recommendation, then write
+   its `patched_yaml` output verbatim. Numbers first, opinion second.
 4. Report the change, the backtest delta, and your reasoning in plain
    language. State trade-offs honestly, including ones that make your
    own proposal look worse.

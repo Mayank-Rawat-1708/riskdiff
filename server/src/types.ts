@@ -41,6 +41,11 @@ export interface ProviderAttempt {
    *  Not always identical to the requested id. */
   resolvedModel?: string;
   ms?: number;
+  /** Largest single request this attempt sent, in input tokens. The
+   *  binding constraint on a free provider tier is tokens per minute,
+   *  so this is the number that decides whether a turn is even
+   *  accepted — worth showing next to the model that ran it. */
+  peakInputTokens?: number;
 }
 
 export interface BacktestScores {
