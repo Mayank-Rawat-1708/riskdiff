@@ -145,12 +145,3 @@ export function parseDiff(raw: string): DiffFile[] {
   }
   return files.filter((f) => f.lines.length);
 }
-
-/** The subject line of a `git show`, when the payload carries one. */
-export function commitSubject(raw: string): string | null {
-  const lines = (raw ?? "").split("\n");
-  const stop = lines.findIndex((l) => l.startsWith("diff --git "));
-  const head = (stop === -1 ? lines : lines.slice(0, stop)).map((l) => l.trim()).filter(Boolean);
-  const subject = head.find((l) => !/^(commit|Author|Date|Merge):/.test(l));
-  return subject ?? null;
-}

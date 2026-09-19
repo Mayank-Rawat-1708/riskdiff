@@ -34,17 +34,26 @@ export default function App() {
   const [landed, setLanded] = useState(false);
   const [landedRuleIds, setLandedRuleIds] = useState<string[]>([]);
 
-  const ruleIdsRef = useRef<string[]>([]);
+  /** Content fingerprint per rule, so "what changed in this refresh"
+   *  covers a threshold edit and not just an added rule. */
+  const ruleFingerprintsRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => applyTheme(theme), [theme]);
+
+  const fingerprint = (r: RuleSummary) =>
+    JSON.stringify([r.description, r.severity, r.action, r.condition]);
 
   const refreshRules = useCallback(async () => {
     const r = await api.rules();
     // Which rules changed in this refresh, so a merge is visible where
-    // it landed rather than only in the commit list.
-    const before = ruleIdsRef.current;
-    const changed = r.rules.filter((x) => !before.includes(x.id)).map((x) => x.id);
-    ruleIdsRef.current = r.rules.map((x) => x.id);
+    // it landed rather than only in the commit list. Keyed on content:
+    // the common case is a threshold moving inside a rule that already
+    // existed, which an id comparison would miss entirely.
+    const before = ruleFingerprintsRef.current;
+    const changed = before.size
+      ? r.rules.filter((x) => before.get(x.id) !== fingerprint(x)).map((x) => x.id)
+      : [];
+    ruleFingerprintsRef.current = new Map(r.rules.map((x) => [x.id, fingerprint(x)]));
     setRules(r.rules);
     setRulesetYaml(r.yaml);
     setHistory(r.history);
@@ -201,7 +210,7 @@ export default function App() {
       setRules(r.rules);
       setRulesetYaml(r.yaml);
       setHistory(r.history);
-      ruleIdsRef.current = r.rules.map((x) => x.id);
+      ruleFingerprintsRef.current = new Map(r.rules.map((x) => [x.id, fingerprint(x)]));
       setCommit(null);
       setCommitDetail(null);
       setNote("");

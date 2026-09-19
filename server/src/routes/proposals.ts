@@ -20,10 +20,13 @@ const INITIAL_INSTRUCTIONS = `An analyst on the transaction risk team reported t
 rules/active-ruleset.yaml and the last several entries of memory/MEMORY.md
 yourself (you have read access), then follow the risk-policy-drafting
 skill: restate the pattern in one sentence, check memory for anything
-related, change exactly one rule using the write tool on
-rules/active-ruleset.yaml, call the backtest tool with the FULL
-candidate rule list (every rule, not just the one you changed), and
-report catch-rate / false-positive-rate deltas plus your honest
+related, decide on exactly one rule change, call the backtest tool with the FULL
+candidate rule list (every rule, not just the one you changed), then
+write the tool's patched_yaml output verbatim into
+rules/active-ruleset.yaml with the write tool. Do not hand-format the
+YAML: patched_yaml is the live file with only your change applied, so
+the analyst reviews a two-line diff instead of a rewritten file.
+Report catch-rate / false-positive-rate deltas plus your honest
 recommendation. End with a COMMIT_MSG line as RULES.md requires.
 
 Analyst report:
@@ -43,9 +46,9 @@ Analyst feedback:
 """
 
 Re-read your current draft of rules/active-ruleset.yaml on this branch,
-revise it per the feedback, re-run the backtest tool with the full
-updated rule list, and report the updated findings. End with a
-COMMIT_MSG line.`;
+re-run the backtest tool with the full revised rule list, write its
+patched_yaml output verbatim back to rules/active-ruleset.yaml, and
+report the updated findings. End with a COMMIT_MSG line.`;
 
 function fallbackCommitMsg(incidentDescription: string): string {
   const words = incidentDescription.trim().split(/\s+/).slice(0, 8).join(" ");
